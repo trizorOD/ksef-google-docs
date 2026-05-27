@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KSeF → Google Sheets</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f5f5f5; color: #222; padding: 2rem; }
+    h1 { margin-bottom: 1.5rem; font-size: 1.4rem; }
+    .card { background: #fff; border-radius: 8px; padding: 1.5rem; box-shadow: 0 1px 4px rgba(0,0,0,.1); margin-bottom: 1.5rem; }
+    label { display: block; font-size: .85rem; color: #555; margin-bottom: .25rem; margin-top: .75rem; }
+    input[type=datetime-local] { width: 100%; max-width: 320px; padding: .4rem .6rem; border: 1px solid #ccc; border-radius: 4px; font-size: .95rem; }
+    .row { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-end; }
+    button { padding: .6rem 1.4rem; border: none; border-radius: 4px; font-size: 1rem; cursor: pointer; }
+    #syncBtn { background: #1a73e8; color: #fff; margin-top: 1rem; }
+    #syncBtn:disabled { background: #9aa5b4; cursor: not-allowed; }
+    #statusBadge { display: inline-block; padding: .2rem .7rem; border-radius: 12px; font-size: .85rem; margin-left: .75rem; }
+    .idle   { background: #e8f0fe; color: #1a73e8; }
+    .running{ background: #fef3cd; color: #856404; }
+    .error  { background: #fde8e8; color: #c62828; }
+    .ok     { background: #e6f4ea; color: #1e7e34; }
+    #log { font-family: monospace; font-size: .82rem; background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 4px; height: 320px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+    .last { font-size: .82rem; color: #666; margin-top: .5rem; }
+  </style>
+</head>
+<body>
+  <h1>KSeF → Google Sheets Sync</h1>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label for="fromDate">Od</label>
+        <input type="datetime-local" id="fromDate" />
+      </div>
+      <div>
+        <label for="toDate">Do</label>
+        <input type="datetime-local" id="toDate" />
+      </div>
+    </div>
+    <button id="syncBtn" onclick="startSync()">▶ Synchronizuj</button>
+    <span id="statusBadge" class="idle">Gotowy</span>
+    <p class="last" id="lastRun"></p>
+  </div>
+
+  <div class="card">
+    <div id="log">Kliknij „Synchronizuj" aby rozpocząć...</div>
+  </div>
+
+  <script>
+    const fmt = (d) => d.toISOString().slice(0,16);
+
+    // Default: last 30 days → now
+    const now = new Date();
+    const monthAgo = new Date(now - 30 * 864e5);
+    document.getElementById('toDate').value = fmt(now);
+    document.getElementById('fromDate').value = fmt(monthAgo);
+
+    let polling = null;
+
+    async function startSync() {
+      const fromDate = document.getElementById('fromDate').value.replace('T', 'T') || undefined;
+      const toDate   = document.getElementById('toDate').value.replace('T', 'T') || undefined;
+
+      const res = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromDate, toDate }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.error || 'Błąd');
+        return;
+      }
+
+      setBadge('running', 'Synchronizacja...');
+      document.getElementById('syncBtn').disabled = true;
+      document.getElementById('log').textContent = '';
+
+      if (polling) clearInterval(polling);
+      polling = setInterval(pollStatus, 1000);
+    }
+
+    async function pollStatus() {
+      const res = await fetch('/api/sync/status');
+      const data = await res.json();
+
+      document.getElementById('log').textContent = data.log.join('\n');
+      const logEl = document.getElementById('log');
+      logEl.scrollTop = logEl.scrollHeight;
+
+      if (data.lastRun) {
+        document.getElementById('lastRun').textContent = 'Ostatnia synchronizacja: ' + data.lastRun;
+      }
+
+      if (!data.running) {
+        clearInterval(polling);
+        polling = null;
+        document.getElementById('syncBtn').disabled = false;
+        if (data.error) {
+          setBadge('error', 'Błąd');
+        } else {
+          setBadge('ok', 'Gotowy');
+        }
+      }
+    }
+
+    function setBadge(cls, text) {
+      const b = document.getElementById('statusBadge');
+      b.className = cls;
+      b.textContent = text;
+    }
+  </script>
+</body>
+</html>

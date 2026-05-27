@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Google OAuth & credentials
+token.json
+oauth-client.json
+service-account-key.json
+*.key.json
+
+# Generated PDFs
+*.pdf
+
+# Claude
+.claude/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
