@@ -388,8 +388,10 @@ function generatePdf(inv, ksefNumber) {
       return rowY + h;
     };
 
+    checkPage(IC_HH + RH);
     y = drawIRow(IC.map(c => c.label), y, true);
     inv.lines.forEach((l, i) => {
+      checkPage(RH);
       y = drawIRow([i + 1, l.name, num(l.price), l.qty, l.unit, num(l.net), num(l.vatAmt)], y, false);
     });
 
@@ -421,8 +423,10 @@ function generatePdf(inv, ksefNumber) {
         return rowY + h;
       };
 
+      checkPage(HH + RH);
       y = drawERow(EC.map(c => c.label), y, true);
       inv.lines.forEach((l, i) => {
+        checkPage(RH);
         y = drawERow([i + 1, l.gtin, l.pkwiu, l.gtu, l.indeks], y, false);
       });
     }
