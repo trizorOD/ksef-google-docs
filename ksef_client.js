@@ -226,7 +226,7 @@ async function* invoiceMetadataPages(client, subjectType, fromDate, toDate) {
 
       const body = {
         subjectType,
-        dateRange: { dateType: 'Issue', from: chunk.from, to: chunk.to },
+        dateRange: { dateType: 'Invoicing', from: chunk.from, to: chunk.to },
         size: pageSize,
         from: pageOffset,
       };
