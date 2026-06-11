@@ -187,7 +187,7 @@ app.listen(config.port, () => {
 });
 
 // Daily sync at 11:00 Warsaw time — fetches yesterday + today
-cron.schedule('0 11 * * *', async () => {
+cron.schedule('0 10 * * *', async () => {
   if (syncState.running) {
     console.log('[CRON] Sync already running, skipping scheduled run');
     return;

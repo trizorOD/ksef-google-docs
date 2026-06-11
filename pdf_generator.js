@@ -1,4 +1,5 @@
 const PDFDocument = require('pdfkit');
+const fs = require('fs');
 
 const FONT_REGULAR = 'C:\\Windows\\Fonts\\arial.ttf';
 const FONT_BOLD = 'C:\\Windows\\Fonts\\arialbd.ttf';
@@ -165,10 +166,10 @@ function generatePdf(inv, ksefNumber) {
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
 
-    try {
+    if (fs.existsSync(FONT_REGULAR) && fs.existsSync(FONT_BOLD)) {
       doc.registerFont('R', FONT_REGULAR);
       doc.registerFont('B', FONT_BOLD);
-    } catch {
+    } else {
       doc.registerFont('R', 'Helvetica');
       doc.registerFont('B', 'Helvetica-Bold');
     }
