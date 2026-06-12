@@ -1,8 +1,13 @@
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
+const os = require('os');
 
-const FONT_REGULAR = 'C:\\Windows\\Fonts\\arial.ttf';
-const FONT_BOLD = 'C:\\Windows\\Fonts\\arialbd.ttf';
+const FONT_REGULAR = os.platform() === 'win32'
+  ? 'C:\\Windows\\Fonts\\arial.ttf'
+  : '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf';
+const FONT_BOLD = os.platform() === 'win32'
+  ? 'C:\\Windows\\Fonts\\arialbd.ttf'
+  : '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf';
 
 const PAYMENT_FORMS = {
   '1': 'Gotówka', '2': 'Karta', '3': 'Bon', '4': 'Czek',
@@ -166,13 +171,8 @@ function generatePdf(inv, ksefNumber) {
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
 
-    if (fs.existsSync(FONT_REGULAR) && fs.existsSync(FONT_BOLD)) {
-      doc.registerFont('R', FONT_REGULAR);
-      doc.registerFont('B', FONT_BOLD);
-    } else {
-      doc.registerFont('R', 'Helvetica');
-      doc.registerFont('B', 'Helvetica-Bold');
-    }
+    doc.registerFont('R', FONT_REGULAR);
+    doc.registerFont('B', FONT_BOLD);
 
     const L = 50;
     const W = 495;

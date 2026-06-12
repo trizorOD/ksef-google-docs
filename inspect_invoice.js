@@ -4,7 +4,7 @@ const { createSession, downloadInvoiceXml } = require('./ksef_client');
 const { parseInvoice, generatePdf } = require('./pdf_generator');
 
 // const KSEF_NUMBER = '5242766375-20260430-769F51400006-7B';
-const KSEF_NUMBER = '9512527761-20260407-546EF4C00001-DE';
+const KSEF_NUMBER = '7010546282-20260611-6D13D9C00004-02';
 //const KSEF_NUMBER = '8792220128-20260520-3ED559800006-CB'; // corrective
 
 (async () => {
