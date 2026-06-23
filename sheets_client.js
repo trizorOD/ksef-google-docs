@@ -22,6 +22,7 @@ const EXTRA_SALE_COLUMNS = [
   'paymentDatePlaceholder',
   'grossAmount',
   'paymentStatusPlaceholder',
+  'notesPlaceholder',
   'isCorrectiveInvoice',
   'driveLink',
 ];
@@ -35,6 +36,7 @@ const EXTRA_SALE_HEADERS = [
   'Date of payment',
   'Sum',
   'Status of payment',
+  '',
   'Corrective invoice',
   'Link to invoice',
 ];
