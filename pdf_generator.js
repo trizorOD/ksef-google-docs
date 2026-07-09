@@ -81,6 +81,20 @@ function parseInvoice(parsed) {
     number: g(z, 'NrZamowienia'),
   })).filter(o => o.number);
 
+  const rozliczenieRaw = fa?.Rozliczenie?.[0];
+  const rozliczenie = rozliczenieRaw ? {
+    charges: [].concat(rozliczenieRaw.Obciazenia || []).map(o => ({
+      amount: g(o, 'Kwota'),
+      reason: g(o, 'Powod'),
+    })),
+    sumCharges: g(rozliczenieRaw, 'SumaObciazen'),
+    amountDue: g(rozliczenieRaw, 'DoZaplaty'),
+  } : null;
+
+  const okresFa = fa?.OkresFa?.[0];
+  const serviceDate = g(fa, 'P_6') ||
+    (okresFa ? `od ${g(okresFa, 'P_6_Od')} do ${g(okresFa, 'P_6_Do')}` : '');
+
   const podmiot3 = p3raw ? {
     brakId: g(p3raw, 'DaneIdentyfikacyjne', 0, 'BrakID') === '1',
     name: g(p3raw, 'DaneIdentyfikacyjne', 0, 'Nazwa'),
@@ -100,7 +114,7 @@ function parseInvoice(parsed) {
     invoiceNumber: g(fa, 'P_2'),
     issueDate: g(fa, 'P_1'),
     issuePlace: g(fa, 'P_1M'),
-    serviceDate: g(fa, 'P_6'),
+    serviceDate,
     dueDate,
     isPaid, paymentDate,
     currency: g(fa, 'KodWaluty') || 'PLN',
@@ -108,10 +122,13 @@ function parseInvoice(parsed) {
     payForm, bankAcc, swift, bankName,
     seller: {
       eori: g(seller, 'NrEORI'),
+      vatPrefix: g(seller, 'PrefiksPodatnika'),
       nip: g(seller?.DaneIdentyfikacyjne?.[0], 'NIP'),
       name: g(seller?.DaneIdentyfikacyjne?.[0], 'Nazwa'),
       addr1: g(seller?.Adres?.[0], 'AdresL1'),
       addr2: g(seller?.Adres?.[0], 'AdresL2'),
+      corrAddr1: g(seller?.AdresKoresp?.[0], 'AdresL1'),
+      corrAddr2: g(seller?.AdresKoresp?.[0], 'AdresL2'),
       gln: g(seller?.Adres?.[0], 'GLN'),
       phone: g(seller?.DaneKontaktowe?.[0], 'Telefon'),
     },
@@ -120,6 +137,8 @@ function parseInvoice(parsed) {
       name: g(buyer?.DaneIdentyfikacyjne?.[0], 'Nazwa'),
       addr1: g(buyer?.Adres?.[0], 'AdresL1'),
       addr2: g(buyer?.Adres?.[0], 'AdresL2'),
+      corrAddr1: g(buyer?.AdresKoresp?.[0], 'AdresL1'),
+      corrAddr2: g(buyer?.AdresKoresp?.[0], 'AdresL2'),
       nrKlienta: g(buyer, 'NrKlienta'),
       jst: g(buyer, 'JST'),
       gv: g(buyer, 'GV'),
@@ -130,6 +149,7 @@ function parseInvoice(parsed) {
       unit: g(l, 'P_8A'),
       qty: g(l, 'P_8B'),
       price: g(l, 'P_9A'),
+      discount: g(l, 'P_10'),
       net: g(l, 'P_11'),
       vatAmt: g(l, 'P_11Vat'),
       vat: g(l, 'P_12'),
@@ -137,9 +157,11 @@ function parseInvoice(parsed) {
       pkwiu: g(l, 'PKWiU'),
       gtu: g(l, 'GTU'),
       indeks: g(l, 'Indeks'),
+      uuId: g(l, 'UU_ID'),
     })),
     vatRows,
     wz, orders,
+    rozliczenie,
     krs: g(stopka, 'Rejestry', 0, 'KRS'),
     regon: g(stopka, 'Rejestry', 0, 'REGON'),
     bdo: g(stopka, 'Rejestry', 0, 'BDO'),
@@ -256,16 +278,27 @@ function generatePdf(inv, ksefNumber) {
       if (party.eori) {
         R(8).fillColor(CLR_GRAY).text(`Numer EORI: ${party.eori}`, px, py, { width: pW }); py += 13;
       }
+      if (party.vatPrefix) {
+        R(8).fillColor(CLR_GRAY).text(`Prefiks VAT: ${party.vatPrefix}`, px, py, { width: pW }); py += 13;
+      }
       R(8).fillColor(CLR_GRAY).text(`NIP: ${party.nip}`, px, py, { width: pW }); py += 13;
       R(8).fillColor(CLR_GRAY).text(`Nazwa: ${party.name}`, px, py, { width: pW }); py += 18;
       R(8).fillColor(CLR_GRAY).text('Adres', px, py, { width: pW }); py += 13;
       if (party.addr1) { R(8).fillColor(CLR_GRAY).text(party.addr1, px, py, { width: pW }); py += 13; }
       if (party.addr2) { R(8).fillColor(CLR_GRAY).text(party.addr2, px, py, { width: pW }); py += 13; }
       R(8).fillColor(CLR_GRAY).text('Polska', px, py, { width: pW }); py += 13;
+      if (party.corrAddr1 || party.corrAddr2) {
+        py += 5;
+        R(8).fillColor(CLR_GRAY).text('Adres do korespondencji', px, py, { width: pW }); py += 13;
+        if (party.corrAddr1) { R(8).fillColor(CLR_GRAY).text(party.corrAddr1, px, py, { width: pW }); py += 13; }
+        if (party.corrAddr2) { R(8).fillColor(CLR_GRAY).text(party.corrAddr2, px, py, { width: pW }); py += 13; }
+        R(8).fillColor(CLR_GRAY).text('Polska', px, py, { width: pW }); py += 13;
+      }
       if (party.gln) {
         R(8).fillColor(CLR_GRAY).text(`GLN: ${party.gln}`, px, py, { width: pW }); py += 13;
       }
       if (party.phone || party.nrKlienta || party.jst || party.gv) {
+        py += 5;
         R(8).fillColor(CLR_GRAY).text('Dane kontaktowe', px, py, { width: pW }); py += 13;
         if (party.phone) {
           R(8).fillColor(CLR_GRAY).text(`Tel.: ${party.phone}`, px, py, { width: pW }); py += 13;
@@ -363,26 +396,36 @@ function generatePdf(inv, ksefNumber) {
 
     // Column widths sum = 495
     const IC = [
-      { label: 'Lp.', w: 24, align: 'center' },
-      { label: 'Nazwa towaru lub usługi', w: 158, align: 'left' },
-      { label: 'Cena jedn. netto', w: 68, align: 'right' },
-      { label: 'Ilość', w: 38, align: 'right' },
-      { label: 'Miara', w: 30, align: 'center' },
-      { label: 'Wartość sprzedaży netto', w: 89, align: 'right' },
-      { label: 'Wartość sprzedaży vat', w: 88, align: 'right' },
+      { label: 'Lp.', w: 18, align: 'center' },
+      { label: 'Nazwa towaru lub usługi', w: 120, align: 'left' },
+      { label: 'Cena jedn. netto', w: 55, align: 'right' },
+      { label: 'Ilość', w: 28, align: 'right' },
+      { label: 'Miara', w: 24, align: 'center' },
+      { label: 'Rabat', w: 28, align: 'right' },
+      { label: 'Stawka podatku', w: 40, align: 'center' },
+      { label: 'Wartość sprzedaży netto', w: 62, align: 'right' },
+      { label: 'Wartość sprzedaży vat', w: 62, align: 'right' },
+      { label: 'UU_ID', w: 58, align: 'left' },
     ];
     const IC_HH = 28; // taller header to accommodate 2-line labels
 
     const drawIRow = (cells, rowY, isHdr) => {
-      const h = isHdr ? IC_HH : RH;
+      const fs = isHdr ? 5 : 6;
+      doc.font(isHdr ? 'B' : 'R').fontSize(fs);
+      let h = isHdr ? IC_HH : RH;
+      if (!isHdr) {
+        cells.forEach((cell, i) => {
+          const cellH = doc.heightOfString(String(cell ?? ''), { width: IC[i].w - 6 });
+          h = Math.max(h, cellH + 8);
+        });
+      }
       doc.rect(L, rowY, W, h).fillAndStroke(isHdr ? CLR_THEAD : 'white', CLR_LINE);
       let x = L;
       cells.forEach((cell, i) => {
         const c = IC[i];
-        const fs = isHdr ? 5 : 6;
         doc.font(isHdr ? 'B' : 'R').fontSize(fs).fillColor('black')
-          .text(String(cell ?? ''), x + 3, rowY + (isHdr ? 3 : Math.floor((h - fs) / 2)), {
-            width: c.w - 6, align: c.align, lineBreak: isHdr,
+          .text(String(cell ?? ''), x + 3, rowY + (isHdr ? 3 : 5), {
+            width: c.w - 6, align: c.align, lineBreak: true,
           });
         x += c.w;
       });
@@ -392,8 +435,12 @@ function generatePdf(inv, ksefNumber) {
     checkPage(IC_HH + RH);
     y = drawIRow(IC.map(c => c.label), y, true);
     inv.lines.forEach((l, i) => {
-      checkPage(RH);
-      y = drawIRow([i + 1, l.name, num(l.price), l.qty, l.unit, num(l.net), num(l.vatAmt)], y, false);
+      checkPage(50);
+      const vatLabel = /^\d+(\.\d+)?$/.test(l.vat) ? `${l.vat}%` : (l.vat || '');
+      y = drawIRow(
+        [i + 1, l.name, num(l.price), l.qty, l.unit, l.discount, vatLabel, num(l.net), num(l.vatAmt), l.uuId],
+        y, false
+      );
     });
 
     // ── EXTRAS TABLE (GTIN / PKWiU / GTU / Indeks) ───────────────────────
@@ -469,6 +516,43 @@ function generatePdf(inv, ksefNumber) {
       y = drawVRow([i + 1, r.rateLabel, num(r.net), num(r.vat), num(r.gross)], y, false);
     });
     y += 18;
+
+    // ── ROZLICZENIE ──────────────────────────────────────────────────────
+    if (inv.rozliczenie) {
+      const rz = inv.rozliczenie;
+      checkPage(80 + rz.charges.length * RH);
+      B(11).fillColor('black').text('Rozliczenie', L, y); y += 18;
+      R(9).fillColor(CLR_GRAY).text('Obciążenia', L, y); y += 14;
+
+      const OC = [
+        { label: 'Powód obciążenia', w: 420, align: 'left' },
+        { label: 'Kwota', w: 75, align: 'right' },
+      ];
+      const drawORow = (cells, rowY, isHdr, h) => {
+        doc.rect(L, rowY, W, h).fillAndStroke(isHdr ? CLR_THEAD : 'white', CLR_LINE);
+        let x = L;
+        cells.forEach((cell, i) => {
+          const c = OC[i];
+          doc.font(isHdr ? 'B' : 'R').fontSize(isHdr ? 6 : 8).fillColor('black')
+            .text(String(cell ?? ''), x + 3, rowY + (isHdr ? 6 : 5), {
+              width: c.w - 6, align: c.align, lineBreak: true,
+            });
+          x += c.w;
+        });
+        return rowY + h;
+      };
+
+      y = drawORow(OC.map(c => c.label), y, true, HH);
+      rz.charges.forEach(c => {
+        const reasonH = R(8).heightOfString(c.reason, { width: OC[0].w - 6 });
+        const rowH = Math.max(RH, reasonH + 10);
+        y = drawORow([c.reason, num(c.amount)], y, false, rowH);
+      });
+      y += 10;
+      R(8).fillColor(CLR_GRAY).text(`Suma kwot obciążenia: ${num(rz.sumCharges)}`, L, y); y += 20;
+      B(9).fillColor('black').text(`Do zapłaty: ${num(rz.amountDue)} ${inv.currency}`, L, y, { width: W, align: 'right' });
+      y += 22;
+    }
 
     // ── PŁATNOŚĆ ──────────────────────────────────────────────────────────
     checkPage(120);
