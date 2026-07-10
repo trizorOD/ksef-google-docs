@@ -54,4 +54,49 @@ async function uploadPdf(auth, pdfBuffer, filename) {
   return res.data.webViewLink;
 }
 
-module.exports = { uploadPdf };
+// Overwrites the content of an existing file with the given name (keeps same
+// file id / webViewLink), or creates it if it doesn't exist yet.
+async function replacePdf(auth, pdfBuffer, filename) {
+  const drive = google.drive({ version: 'v3', auth });
+  const folderId = await getOrCreateFolder(drive);
+
+  const existing = await drive.files.list({
+    q: `name='${filename}' and '${folderId}' in parents and trashed=false`,
+    fields: 'files(id, webViewLink)',
+  });
+
+  const stream = new Readable();
+  stream.push(pdfBuffer);
+  stream.push(null);
+
+  if (existing.data.files.length > 0) {
+    const fileId = existing.data.files[0].id;
+    const res = await drive.files.update({
+      fileId,
+      media: { mimeType: 'application/pdf', body: stream },
+      fields: 'id, webViewLink',
+    });
+    console.log(`Drive: replaced content of existing file — ${filename}`);
+    return res.data.webViewLink || existing.data.files[0].webViewLink;
+  }
+
+  const res = await drive.files.create({
+    requestBody: {
+      name: filename,
+      mimeType: 'application/pdf',
+      parents: [folderId],
+    },
+    media: { mimeType: 'application/pdf', body: stream },
+    fields: 'id, webViewLink',
+  });
+
+  await drive.permissions.create({
+    fileId: res.data.id,
+    requestBody: { role: 'reader', type: 'anyone' },
+  });
+
+  console.log(`Drive: created new file — ${filename}`);
+  return res.data.webViewLink;
+}
+
+module.exports = { uploadPdf, replacePdf };

@@ -388,7 +388,7 @@ async function getExistingIncoming(auth) {
   return getExistingKsefNums(auth, 'Zakupy (Subject2)', [...EXTRA_PURCHASE_COLUMNS, ...COLUMNS_PURCHASE]);
 }
 
-async function updateCorrectiveDriveLink(auth, originalKsefNum, driveLink) {
+async function updateCorrectiveDriveLink(auth, originalKsefNum, driveLink, force = false) {
   const sheetTitle = 'Zakupy (Subject2)';
   const allCols = [...EXTRA_PURCHASE_COLUMNS, ...COLUMNS_PURCHASE];
   const ksefIdx = allCols.indexOf('ksefNumber');
@@ -403,7 +403,7 @@ async function updateCorrectiveDriveLink(auth, originalKsefNum, driveLink) {
 
   for (let i = 1; i < rows.length; i++) {
     if (rows[i][ksefIdx] !== originalKsefNum) continue;
-    if (rows[i][linkIdx]) return false; // already set
+    if (rows[i][linkIdx] && !force) return false; // already set
     const col = String.fromCharCode(65 + linkIdx);
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
@@ -416,4 +416,43 @@ async function updateCorrectiveDriveLink(auth, originalKsefNum, driveLink) {
   return null; // original row not found
 }
 
-module.exports = { authorize, syncToSheets, writeOutgoing, writeIncoming, getExistingOutgoing, getExistingIncoming, updateCorrectiveDriveLink };
+// Overwrites the 'driveLink' cell for the row matching ksefNum in the given
+// sheet. Returns true if a row was found and updated, false otherwise.
+async function updateDriveLinkForKsef(auth, sheetTitle, allCols, ksefNum, driveLink) {
+  const ksefIdx = allCols.indexOf('ksefNumber');
+  const linkIdx = allCols.indexOf('driveLink');
+  if (ksefIdx < 0 || linkIdx < 0) return false;
+
+  const sheets = google.sheets({ version: 'v4', auth });
+  const data = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `'${sheetTitle}'`,
+  });
+  const rows = data.data.values || [];
+
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][ksefIdx] !== ksefNum) continue;
+    const col = String.fromCharCode(65 + linkIdx);
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `'${sheetTitle}'!${col}${i + 1}`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [[driveLink]] },
+    });
+    return true;
+  }
+  return false;
+}
+
+async function updateOutgoingDriveLink(auth, ksefNum, driveLink) {
+  return updateDriveLinkForKsef(auth, 'Sprzedaż (Subject1)', [...EXTRA_SALE_COLUMNS, ...COLUMNS_SALE], ksefNum, driveLink);
+}
+
+async function updateIncomingDriveLink(auth, ksefNum, driveLink) {
+  return updateDriveLinkForKsef(auth, 'Zakupy (Subject2)', [...EXTRA_PURCHASE_COLUMNS, ...COLUMNS_PURCHASE], ksefNum, driveLink);
+}
+
+module.exports = {
+  authorize, syncToSheets, writeOutgoing, writeIncoming, getExistingOutgoing, getExistingIncoming,
+  updateCorrectiveDriveLink, updateOutgoingDriveLink, updateIncomingDriveLink,
+};
