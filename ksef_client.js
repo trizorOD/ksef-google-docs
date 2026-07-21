@@ -216,7 +216,11 @@ async function* invoiceMetadataPages(client, subjectType, fromDate, toDate) {
   console.log(`KSeF: fetching ${subjectType} from ${fromDate} to ${toDate} (${chunks.length} chunk(s))`);
 
   for (const chunk of chunks) {
-    let pageOffset = 0;
+    // KSeF paginates via query-string params, not the request body. pageOffset
+    // is a page NUMBER (0-indexed), not a row offset — the body-based `from`/`size`
+    // used previously is silently ignored by the API, which just re-returns page 0
+    // forever, so every date range beyond one page went missing.
+    let pageNumber = 0;
     const pageSize = 20;
     let hasMore = true;
     const seenNums = new Set();
@@ -227,36 +231,36 @@ async function* invoiceMetadataPages(client, subjectType, fromDate, toDate) {
       const body = {
         subjectType,
         dateRange: { dateType: 'Invoicing', from: chunk.from, to: chunk.to },
-        size: pageSize,
-        from: pageOffset,
       };
 
-      const res = await withRetry(() => client.post('/invoices/query/metadata', body));
+      const res = await withRetry(() =>
+        client.post('/invoices/query/metadata', body, { params: { pageOffset: pageNumber, pageSize } })
+      );
       _lastKSeFMs = Date.now();
       const data = res.data;
       const page = data.invoices || [];
 
-      if (pageOffset === 0) {
+      if (pageNumber === 0) {
         console.log(`  [PAGINATION] keys: ${Object.keys(data).join(', ')}`);
         console.log(`  [PAGINATION] hasMore=${data.hasMore}, isTruncated=${data.isTruncated}`);
         if (page.length > 0) console.log(`  [SAMPLE] first invoice: ${JSON.stringify(page[0])}`);
       }
       const sellers = page.map(inv => `${inv.issueDate} | ${(inv.seller?.name || inv.buyer?.name || '?').slice(0, 40)}`).join('\n    ');
-      console.log(`KSeF: ${subjectType} offset=${pageOffset} got ${page.length}, hasMore=${data.hasMore}\n    ${sellers}`);
+      console.log(`KSeF: ${subjectType} page=${pageNumber} got ${page.length}, hasMore=${data.hasMore}\n    ${sellers}`);
 
       if (page.length === 0) break;
 
-      // Detect API cycling — stop if all items on this page were already seen
+      // Defensive: stop if the API ever cycles back to a page we've already seen
       const newItems = page.filter(inv => !seenNums.has(inv.ksefNumber));
       if (newItems.length === 0) {
-        console.log(`KSeF: ${subjectType} — duplicate page detected at offset=${pageOffset}, stopping`);
+        console.log(`KSeF: ${subjectType} — duplicate page detected at page=${pageNumber}, stopping`);
         break;
       }
       newItems.forEach(inv => seenNums.add(inv.ksefNumber));
 
       yield newItems;
 
-      pageOffset += page.length;
+      pageNumber += 1;
       hasMore = data.hasMore === true;
     }
   }
