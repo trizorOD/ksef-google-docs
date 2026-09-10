@@ -22,7 +22,7 @@ function addLog(msg) {
   if (syncState.log.length > 500) syncState.log.shift();
 }
 
-let reminderState = { running: false, log: [], lastRun: null, error: null };
+let reminderState = { running: false, log: [], lastRun: null, lastSummary: null, error: null };
 
 function addReminderLog(msg) {
   const line = `[${new Date().toISOString()}] ${msg}`;
@@ -207,7 +207,9 @@ app.post('/api/reminders/run', async (_req, res) => {
   (async () => {
     try {
       const auth = await authorize();
-      await runReminders(auth, { log: addReminderLog });
+      const summary = await runReminders(auth, { log: addReminderLog });
+      reminderState.lastRun = new Date().toISOString();
+      reminderState.lastSummary = summary;
     } catch (err) {
       reminderState.error = err.message;
       addReminderLog(`ERROR: ${err.message}`);
@@ -269,7 +271,9 @@ cron.schedule('0 9 * * *', async () => {
 
   try {
     const auth = await authorize();
-    await runReminders(auth, { log: addReminderLog });
+    const summary = await runReminders(auth, { log: addReminderLog });
+    reminderState.lastRun = new Date().toISOString();
+    reminderState.lastSummary = summary;
   } catch (err) {
     reminderState.error = err.message;
     addReminderLog(`[CRON] ERROR: ${err.message}`);

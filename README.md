@@ -222,6 +222,15 @@ or `оплачено` (case-insensitive). Each kind of email is sent at most onc
 per invoice — tracked via the `Reminder sent` / `Overdue email sent`
 columns on the Sprzedaż sheet.
 
+**Before enabling the daily cron for the first time**, be aware the overdue
+check has no historical cutoff — it will email an overdue notice for every
+existing unpaid Sprzedaż row with a past due date, including invoices settled
+outside the sheet. Either bulk-fill the `Overdue email sent` column for
+historical rows you don't want emailed, or trigger the first run manually
+(`POST /api/reminders/run`) against a disposable SMTP test account (e.g.
+[Ethereal](https://ethereal.email/)) and review the log before pointing
+`SMTP_*` at real credentials.
+
 Runs daily at **09:00 Warsaw time**, independent of the 11:00 KSeF sync.
 Can also be triggered manually:
 
