@@ -6,6 +6,7 @@ const config = require('./config');
 const { createSession, invoiceMetadataPages, downloadInvoiceXml } = require('./ksef_client');
 const { authorize, writeOutgoing, writeIncoming, getExistingOutgoing, getExistingIncoming, updateCorrectiveDriveLink } = require('./sheets_client');
 const { uploadPdf } = require('./drive_client');
+const { runReminders } = require('./reminders');
 const { parseInvoice, generatePdf } = require('./pdf_generator');
 
 const app = express();
@@ -19,6 +20,15 @@ function addLog(msg) {
   console.log(line);
   syncState.log.push(line);
   if (syncState.log.length > 500) syncState.log.shift();
+}
+
+let reminderState = { running: false, log: [], lastRun: null, error: null };
+
+function addReminderLog(msg) {
+  const line = `[${new Date().toISOString()}] ${msg}`;
+  console.log(line);
+  reminderState.log.push(line);
+  if (reminderState.log.length > 500) reminderState.log.shift();
 }
 
 async function enrichWithPdfs(invoices, ksefClient, auth, label) {
@@ -182,6 +192,36 @@ app.get('/api/sync/status', (_req, res) => {
   res.json(syncState);
 });
 
+// POST /api/reminders/run — manually trigger the reminder job
+app.post('/api/reminders/run', async (_req, res) => {
+  if (reminderState.running) {
+    return res.status(409).json({ error: 'Reminder run already in progress' });
+  }
+
+  reminderState.running = true;
+  reminderState.error = null;
+  reminderState.log = [];
+
+  res.json({ status: 'started' });
+
+  (async () => {
+    try {
+      const auth = await authorize();
+      await runReminders(auth, { log: addReminderLog });
+    } catch (err) {
+      reminderState.error = err.message;
+      addReminderLog(`ERROR: ${err.message}`);
+    } finally {
+      reminderState.running = false;
+    }
+  })();
+});
+
+// GET /api/reminders/status
+app.get('/api/reminders/status', (_req, res) => {
+  res.json(reminderState);
+});
+
 app.listen(config.port, () => {
   console.log(`Server running at http://localhost:${config.port}`);
 });
@@ -213,5 +253,27 @@ cron.schedule('0 10 * * *', async () => {
     }
   } finally {
     syncState.running = false;
+  }
+}, { timezone: 'Europe/Warsaw' });
+
+// Daily reminder emails at 09:00 Warsaw time
+cron.schedule('0 9 * * *', async () => {
+  if (reminderState.running) {
+    console.log('[CRON] Reminder run already in progress, skipping scheduled run');
+    return;
+  }
+
+  reminderState.running = true;
+  reminderState.error = null;
+  reminderState.log = [];
+
+  try {
+    const auth = await authorize();
+    await runReminders(auth, { log: addReminderLog });
+  } catch (err) {
+    reminderState.error = err.message;
+    addReminderLog(`[CRON] ERROR: ${err.message}`);
+  } finally {
+    reminderState.running = false;
   }
 }, { timezone: 'Europe/Warsaw' });
