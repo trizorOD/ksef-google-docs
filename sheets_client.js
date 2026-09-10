@@ -78,6 +78,8 @@ const COLUMNS_SALE = [
   'netAmount',
   'grossAmount',
   'vatAmount',
+  'reminderSentPlaceholder',
+  'overdueSentPlaceholder',
 ];
 
 const HEADERS_SALE = [
@@ -85,6 +87,8 @@ const HEADERS_SALE = [
   'Kwota netto',
   'Kwota brutto',
   'Kwota VAT',
+  'Reminder sent',
+  'Overdue email sent',
 ];
 
 // Base columns for incoming (Zakupy / Subject2) — trimmed set
@@ -264,6 +268,8 @@ function colValue(col, inv) {
     case 'isCorrectiveInvoice':       return inv.invoiceType?.toUpperCase() === 'KOR' ? 'TAK' : '';
     case 'driveLink':                 return inv._driveLink || '';
     case 'correctiveDriveLink':       return inv._correctiveDriveLink || '';
+    case 'reminderSentPlaceholder':   return '';
+    case 'overdueSentPlaceholder':    return '';
     default:                        return '';
   }
 }
@@ -452,7 +458,52 @@ async function updateIncomingDriveLink(auth, ksefNum, driveLink) {
   return updateDriveLinkForKsef(auth, 'Zakupy (Subject2)', [...EXTRA_PURCHASE_COLUMNS, ...COLUMNS_PURCHASE], ksefNum, driveLink);
 }
 
+function parseSaleRowsForReminders(rawRows) {
+  const allCols = [...EXTRA_SALE_COLUMNS, ...COLUMNS_SALE];
+  const idx = (name) => allCols.indexOf(name);
+  const result = [];
+
+  for (let i = 1; i < rawRows.length; i++) {
+    const r = rawRows[i];
+    const invoiceNumber = r[idx('invoiceNumber')] || '';
+    if (!invoiceNumber) continue;
+
+    result.push({
+      rowNumber: i + 1,
+      invoiceNumber,
+      buyerName: r[idx('buyerName')] || '',
+      issueDate: r[idx('issueDate')] || '',
+      dueDate: r[idx('dueDatePlaceholder')] || '',
+      grossAmount: r[idx('grossAmount')] || '',
+      status: r[idx('paymentStatusPlaceholder')] || '',
+      reminderSent: r[idx('reminderSentPlaceholder')] || '',
+      overdueSent: r[idx('overdueSentPlaceholder')] || '',
+    });
+  }
+
+  return result;
+}
+
+function parseContactsRows(rawRows) {
+  const map = new Map();
+  for (let i = 1; i < rawRows.length; i++) {
+    const name = (rawRows[i][0] || '').trim().toLowerCase();
+    const email = (rawRows[i][4] || '').trim();
+    if (name && email) map.set(name, email);
+  }
+  return map;
+}
+
+function computeMissingHeaders(currentHeaders, expectedHeaders) {
+  if (currentHeaders.length >= expectedHeaders.length) return null;
+  return {
+    startColIndex: currentHeaders.length,
+    missing: expectedHeaders.slice(currentHeaders.length),
+  };
+}
+
 module.exports = {
   authorize, syncToSheets, writeOutgoing, writeIncoming, getExistingOutgoing, getExistingIncoming,
   updateCorrectiveDriveLink, updateOutgoingDriveLink, updateIncomingDriveLink,
+  parseSaleRowsForReminders, parseContactsRows, computeMissingHeaders,
 };
