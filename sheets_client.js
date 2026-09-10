@@ -502,8 +502,81 @@ function computeMissingHeaders(currentHeaders, expectedHeaders) {
   };
 }
 
+async function ensureSaleHeaderColumns(auth) {
+  const sheetTitle = 'Sprzedaż (Subject1)';
+  const sheets = google.sheets({ version: 'v4', auth });
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
+  if (!meta.data.sheets.find((s) => s.properties.title === sheetTitle)) return;
+
+  const expectedHeaders = [...EXTRA_SALE_HEADERS, ...HEADERS_SALE];
+  const data = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `'${sheetTitle}'!1:1`,
+  });
+  const currentHeaders = (data.data.values && data.data.values[0]) || [];
+  const diff = computeMissingHeaders(currentHeaders, expectedHeaders);
+  if (!diff) return;
+
+  const startCol = String.fromCharCode(65 + diff.startColIndex);
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `'${sheetTitle}'!${startCol}1`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [diff.missing] },
+  });
+}
+
+async function getSaleRowsForReminders(auth) {
+  const sheets = google.sheets({ version: 'v4', auth });
+  const data = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `'Sprzedaż (Subject1)'`,
+    // UNFORMATTED_VALUE so Sum comes back as a plain number, not a
+    // locale-formatted display string (e.g. "1 234,56").
+    valueRenderOption: 'UNFORMATTED_VALUE',
+  });
+  return parseSaleRowsForReminders(data.data.values || []);
+}
+
+async function getContacts(auth) {
+  const sheetTitle = 'Contacts';
+  const sheets = google.sheets({ version: 'v4', auth });
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
+  if (!meta.data.sheets.find((s) => s.properties.title === sheetTitle)) return new Map();
+
+  const data = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `'${sheetTitle}'`,
+  });
+  return parseContactsRows(data.data.values || []);
+}
+
+async function updateSaleCell(auth, rowNumber, colName, value) {
+  const sheetTitle = 'Sprzedaż (Subject1)';
+  const allCols = [...EXTRA_SALE_COLUMNS, ...COLUMNS_SALE];
+  const colIndex = allCols.indexOf(colName);
+  const col = String.fromCharCode(65 + colIndex);
+
+  const sheets = google.sheets({ version: 'v4', auth });
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `'${sheetTitle}'!${col}${rowNumber}`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [[value]] },
+  });
+}
+
+async function markReminderSent(auth, rowNumber, dateStr) {
+  return updateSaleCell(auth, rowNumber, 'reminderSentPlaceholder', dateStr);
+}
+
+async function markOverdueSent(auth, rowNumber, dateStr) {
+  return updateSaleCell(auth, rowNumber, 'overdueSentPlaceholder', dateStr);
+}
+
 module.exports = {
   authorize, syncToSheets, writeOutgoing, writeIncoming, getExistingOutgoing, getExistingIncoming,
   updateCorrectiveDriveLink, updateOutgoingDriveLink, updateIncomingDriveLink,
   parseSaleRowsForReminders, parseContactsRows, computeMissingHeaders,
+  ensureSaleHeaderColumns, getSaleRowsForReminders, getContacts, markReminderSent, markOverdueSent,
 };
