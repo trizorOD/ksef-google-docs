@@ -75,8 +75,13 @@ async function runReminders(auth, options = {}) {
   const contacts = await sheets.getContacts(auth);
 
   const summary = {
-    sentReminder: 0, sentOverdue: 0, skippedNoContact: 0, failed: 0, failedToRecord: 0,
+    sentReminder: 0, sentOverdue: 0, skippedNoContact: 0, skippedNotAllowlisted: 0, failed: 0, failedToRecord: 0,
   };
+
+  const allowlist = options.testOnlyRecipients || config.smtp.testOnlyRecipients;
+  if (allowlist.length) {
+    log(`TEST MODE: only sending to allowlisted recipient(s): ${allowlist.join(', ')} — everything else will be skipped`);
+  }
 
   for (const row of rows) {
     const action = decideAction(row, todayISO);
@@ -86,6 +91,12 @@ async function runReminders(auth, options = {}) {
     if (!email) {
       log(`Skipping ${row.invoiceNumber}: no Contacts email for buyer "${row.buyerName}"`);
       summary.skippedNoContact++;
+      continue;
+    }
+
+    if (allowlist.length && !allowlist.includes(email.trim().toLowerCase())) {
+      log(`Skipping ${row.invoiceNumber}: recipient ${email} not in the test allowlist`);
+      summary.skippedNotAllowlisted++;
       continue;
     }
 
@@ -120,7 +131,7 @@ async function runReminders(auth, options = {}) {
     }
   }
 
-  log(`Reminder run completed: ${summary.sentReminder} reminder(s), ${summary.sentOverdue} overdue, ${summary.skippedNoContact} skipped (no contact), ${summary.failed} failed, ${summary.failedToRecord} sent but not recorded`);
+  log(`Reminder run completed: ${summary.sentReminder} reminder(s), ${summary.sentOverdue} overdue, ${summary.skippedNoContact} skipped (no contact), ${summary.skippedNotAllowlisted} skipped (not allowlisted), ${summary.failed} failed, ${summary.failedToRecord} sent but not recorded`);
   return summary;
 }
 

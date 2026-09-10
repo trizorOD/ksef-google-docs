@@ -72,7 +72,7 @@ test('runReminders sends a reminder email and records it on the row', async () =
   assert.deepEqual(calls.markReminderSent, [[AUTH, 7, '10-09-2026']]);
   assert.equal(calls.markOverdueSent.length, 0);
   assert.deepEqual(summary, {
-    sentReminder: 1, sentOverdue: 0, skippedNoContact: 0, failed: 0, failedToRecord: 0,
+    sentReminder: 1, sentOverdue: 0, skippedNoContact: 0, skippedNotAllowlisted: 0, failed: 0, failedToRecord: 0,
   });
 });
 
@@ -92,7 +92,7 @@ test('runReminders sends an overdue email and records it on the row', async () =
   assert.deepEqual(calls.markOverdueSent, [[AUTH, 7, '10-09-2026']]);
   assert.equal(calls.markReminderSent.length, 0);
   assert.deepEqual(summary, {
-    sentReminder: 0, sentOverdue: 1, skippedNoContact: 0, failed: 0, failedToRecord: 0,
+    sentReminder: 0, sentOverdue: 1, skippedNoContact: 0, skippedNotAllowlisted: 0, failed: 0, failedToRecord: 0,
   });
 });
 
@@ -197,8 +197,33 @@ test('runReminders skips rows that need no action', async () => {
   assert.equal(calls.markReminderSent.length, 0);
   assert.equal(calls.markOverdueSent.length, 0);
   assert.deepEqual(summary, {
-    sentReminder: 0, sentOverdue: 0, skippedNoContact: 0, failed: 0, failedToRecord: 0,
+    sentReminder: 0, sentOverdue: 0, skippedNoContact: 0, skippedNotAllowlisted: 0, failed: 0, failedToRecord: 0,
   });
+});
+
+test('runReminders with a testOnlyRecipients allowlist only sends to listed addresses', async () => {
+  const rowToFriend = saleRow({ invoiceNumber: 'FV/1/2026', buyerName: 'Acme Sp. z o.o.' });
+  const rowToSelf = saleRow({ invoiceNumber: 'FV/2/2026', buyerName: 'Self Test Buyer' });
+  const contacts = new Map([
+    ['acme sp. z o.o.', 'billing@acme.pl'],
+    ['self test buyer', 'me@example.com'],
+  ]);
+  const { sheets, calls } = makeSheets({ rows: [rowToFriend, rowToSelf], contacts });
+  const { transporter, calls: sent } = makeTransporter();
+  const lines = [];
+
+  const summary = await runReminders(AUTH, {
+    todayISO: TODAY, transporter, sheets, log: (l) => lines.push(l),
+    testOnlyRecipients: ['me@example.com'],
+  });
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].to, 'me@example.com');
+  assert.equal(calls.markReminderSent.length, 1);
+  assert.equal(summary.sentReminder, 1);
+  assert.equal(summary.skippedNotAllowlisted, 1);
+  assert.ok(lines.some((l) => l.includes('TEST MODE')));
+  assert.ok(lines.some((l) => l.includes('FV/1/2026') && l.includes('not in the test allowlist')));
 });
 
 test('runReminders ensures the tracking header columns exist before reading rows', async () => {
