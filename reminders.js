@@ -59,14 +59,24 @@ async function runReminders(auth, options = {}) {
   const log = options.log || (() => {});
   const todayISO = options.todayISO || warsawTodayISO();
   const transporter = options.transporter || createTransport();
+  const sheets = {
+    ensureSaleHeaderColumns,
+    getSaleRowsForReminders,
+    getContacts,
+    markReminderSent,
+    markOverdueSent,
+    ...options.sheets,
+  };
 
   log(`Reminder run started for ${todayISO}`);
 
-  await ensureSaleHeaderColumns(auth);
-  const rows = await getSaleRowsForReminders(auth);
-  const contacts = await getContacts(auth);
+  await sheets.ensureSaleHeaderColumns(auth);
+  const rows = await sheets.getSaleRowsForReminders(auth);
+  const contacts = await sheets.getContacts(auth);
 
-  const summary = { sentReminder: 0, sentOverdue: 0, skippedNoContact: 0, failed: 0 };
+  const summary = {
+    sentReminder: 0, sentOverdue: 0, skippedNoContact: 0, failed: 0, failedToRecord: 0,
+  };
 
   for (const row of rows) {
     const action = decideAction(row, todayISO);
@@ -80,6 +90,7 @@ async function runReminders(auth, options = {}) {
     }
 
     const rendered = buildEmail(action, row);
+
     try {
       await transporter.sendMail({
         from: config.smtp.from,
@@ -87,23 +98,29 @@ async function runReminders(auth, options = {}) {
         subject: rendered.subject,
         text: rendered.body,
       });
-
-      const sentDate = formatDatePl(todayISO);
-      if (action === 'reminder') {
-        await markReminderSent(auth, row.rowNumber, sentDate);
-        summary.sentReminder++;
-      } else {
-        await markOverdueSent(auth, row.rowNumber, sentDate);
-        summary.sentOverdue++;
-      }
-      log(`Sent ${action} email for ${row.invoiceNumber} to ${email}`);
     } catch (err) {
       summary.failed++;
       log(`Failed to send ${action} email for ${row.invoiceNumber}: ${err.message}`);
+      continue;
+    }
+
+    if (action === 'reminder') summary.sentReminder++; else summary.sentOverdue++;
+    log(`Sent ${action} email for ${row.invoiceNumber} to ${email}`);
+
+    try {
+      const sentDate = formatDatePl(todayISO);
+      if (action === 'reminder') {
+        await sheets.markReminderSent(auth, row.rowNumber, sentDate);
+      } else {
+        await sheets.markOverdueSent(auth, row.rowNumber, sentDate);
+      }
+    } catch (err) {
+      summary.failedToRecord++;
+      log(`WARNING: sent ${action} email for ${row.invoiceNumber} to ${email} but failed to record it in the sheet (row ${row.rowNumber}) — a duplicate may be sent next run: ${err.message}`);
     }
   }
 
-  log(`Reminder run completed: ${summary.sentReminder} reminder(s), ${summary.sentOverdue} overdue, ${summary.skippedNoContact} skipped (no contact), ${summary.failed} failed`);
+  log(`Reminder run completed: ${summary.sentReminder} reminder(s), ${summary.sentOverdue} overdue, ${summary.skippedNoContact} skipped (no contact), ${summary.failed} failed, ${summary.failedToRecord} sent but not recorded`);
   return summary;
 }
 
