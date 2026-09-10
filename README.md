@@ -25,6 +25,9 @@ ksef_client.js      KSeF API client (auth, pagination, XML download)
 sheets_client.js    Google Sheets read/write
 drive_client.js     Google Drive PDF upload
 pdf_generator.js    Parse invoice XML → generate PDF (PDFKit)
+reminders.js        Sends reminder/overdue emails; cron + manual trigger via app.js
+template_utils.js   Email template loading, placeholder rendering, date/amount formatting
+templates/           Email template text files (reminder.txt, overdue.txt)
 config.js           Reads environment variables
 public/index.html   Web UI (date range picker + live log)
 inspect_invoice.js  Dev utility: fetch one invoice by KSeF number, print parsed JSON, save PDF
@@ -156,6 +159,8 @@ GET /api/sync/status
 | Link to invoice | Google Drive PDF link |
 | Numer KSeF | KSeF reference number |
 | Kwota netto / brutto / VAT | Net / gross / VAT amounts |
+| Reminder sent | Date the day-before-due-date reminder email was sent (blank if not yet sent) |
+| Overdue email sent | Date the day-after-due-date overdue email was sent (blank if not yet sent) |
 
 ### Zakupy (Subject2) — incoming invoices
 
@@ -199,6 +204,45 @@ Uploaded files are shared as "anyone with the link can view" so the link works w
 ## Scheduled sync
 
 A cron job runs every day at **11:00 Warsaw time** and syncs the date range from yesterday 00:00 to today 23:59. It skips execution if a manual sync is already running.
+
+---
+
+## Email reminders
+
+Two automated emails are sent per outgoing (Sprzedaż) invoice, to the buyer's
+address on the **Contacts** sheet (matched by exact `Buyer` ↔ `Contacts!Name`
+text):
+
+- **Reminder** — sent the day *before* the invoice's due date.
+- **Overdue notice** — sent the day *after* the due date (and caught up on a
+  later run if the server was down on the exact day).
+
+An invoice is skipped if its `Status of payment` cell already reads `Paid`
+or `оплачено` (case-insensitive). Each kind of email is sent at most once
+per invoice — tracked via the `Reminder sent` / `Overdue email sent`
+columns on the Sprzedaż sheet.
+
+Runs daily at **09:00 Warsaw time**, independent of the 11:00 KSeF sync.
+Can also be triggered manually:
+
+```
+POST /api/reminders/run
+GET  /api/reminders/status
+```
+
+Templates live in `templates/reminder.txt` and `templates/overdue.txt`, with
+placeholders `[NUMER]`, `[KWOTA]`, `[DATA]`, `[TERMIN PŁATNOŚCI]`.
+
+Requires SMTP configuration in `.env` (see `.env.example`):
+
+```env
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=
+SMTP_PASS=
+SMTP_FROM=
+```
 
 ---
 
