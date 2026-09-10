@@ -1,10 +1,13 @@
 const path = require('path');
 const {
-  loadTemplate, renderTemplate, formatAmountPl, formatDatePl, addDaysISO, warsawTodayISO,
+  loadTemplate, renderTemplate, formatAmountPl, formatDatePl, parseDatePl, addDaysISO, warsawTodayISO,
 } = require('./template_utils');
 
 const REMINDER_TEMPLATE_PATH = path.join(__dirname, 'templates', 'reminder.txt');
 const OVERDUE_TEMPLATE_PATH = path.join(__dirname, 'templates', 'overdue.txt');
+
+// How often to re-send the overdue notice while an invoice remains unpaid.
+const OVERDUE_FOLLOWUP_DAYS = 7;
 
 function isPaidStatus(text) {
   const normalized = String(text || '').trim().toLowerCase();
@@ -16,7 +19,15 @@ function needsReminder(row, todayISO) {
 }
 
 function needsOverdue(row, todayISO) {
-  return !!row.dueDate && !row.overdueSent && row.dueDate < todayISO;
+  if (!row.dueDate || row.dueDate >= todayISO) return false;
+  if (!row.overdueSent) return true; // first overdue notice for this invoice
+
+  // Already sent at least once — re-send every OVERDUE_FOLLOWUP_DAYS while
+  // still unpaid. If the previous send date can't be parsed, don't guess:
+  // treat it as "already handled" rather than risk a spam loop.
+  const lastSentISO = parseDatePl(row.overdueSent);
+  if (!lastSentISO) return false;
+  return addDaysISO(lastSentISO, OVERDUE_FOLLOWUP_DAYS) <= todayISO;
 }
 
 function decideAction(row, todayISO) {

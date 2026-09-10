@@ -26,8 +26,23 @@ test('needsOverdue is true once due date is in the past and not yet sent, with c
   const today = '2026-09-10';
   assert.equal(needsOverdue({ dueDate: '2026-09-09', overdueSent: '' }, today), true);
   assert.equal(needsOverdue({ dueDate: '2026-08-01', overdueSent: '' }, today), true); // catch-up
-  assert.equal(needsOverdue({ dueDate: '2026-09-09', overdueSent: '09-09-2026' }, today), false);
   assert.equal(needsOverdue({ dueDate: '2026-09-10', overdueSent: '' }, today), false); // due today, not overdue yet
+});
+
+test('needsOverdue re-sends the follow-up every 7 days while still unpaid', () => {
+  const today = '2026-09-17';
+  // sent yesterday -> too soon
+  assert.equal(needsOverdue({ dueDate: '2026-09-01', overdueSent: '16-09-2026' }, today), false);
+  // sent 3 days ago -> still too soon
+  assert.equal(needsOverdue({ dueDate: '2026-09-01', overdueSent: '14-09-2026' }, today), false);
+  // sent exactly 7 days ago -> follow-up due (boundary, inclusive)
+  assert.equal(needsOverdue({ dueDate: '2026-09-01', overdueSent: '10-09-2026' }, today), true);
+  // sent 10 days ago -> overdue for a follow-up
+  assert.equal(needsOverdue({ dueDate: '2026-09-01', overdueSent: '07-09-2026' }, today), true);
+});
+
+test('needsOverdue treats an unparseable overdueSent value as already handled (no resend)', () => {
+  assert.equal(needsOverdue({ dueDate: '2026-09-01', overdueSent: 'not-a-date' }, '2026-09-17'), false);
 });
 
 test('decideAction picks reminder, overdue, or null — and skips paid rows', () => {

@@ -38,6 +38,13 @@ function formatDatePl(isoDate) {
   return `${dd}-${mm}-${yyyy}`;
 }
 
+function parseDatePl(dmyDate) {
+  const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(String(dmyDate || ''));
+  if (!m) return '';
+  const [, dd, mm, yyyy] = m;
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 function warsawTodayISO(now = new Date()) {
   const fmt = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Europe/Warsaw',
@@ -61,6 +68,7 @@ module.exports = {
   renderTemplate,
   formatAmountPl,
   formatDatePl,
+  parseDatePl,
   warsawTodayISO,
   addDaysISO,
 };

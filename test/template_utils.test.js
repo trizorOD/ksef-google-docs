@@ -7,6 +7,7 @@ const {
   renderTemplate,
   formatAmountPl,
   formatDatePl,
+  parseDatePl,
   warsawTodayISO,
   addDaysISO,
 } = require('../template_utils');
@@ -45,6 +46,14 @@ test('formatDatePl converts an ISO date to dd-MM-yyyy', () => {
   assert.equal(formatDatePl('2026-01-05T00:00:00'), '05-01-2026');
   assert.equal(formatDatePl(''), '');
   assert.equal(formatDatePl('not-a-date'), '');
+});
+
+test('parseDatePl converts a dd-MM-yyyy string back to ISO, the inverse of formatDatePl', () => {
+  assert.equal(parseDatePl('15-09-2026'), '2026-09-15');
+  assert.equal(parseDatePl(formatDatePl('2026-01-05')), '2026-01-05');
+  assert.equal(parseDatePl(''), '');
+  assert.equal(parseDatePl('not-a-date'), '');
+  assert.equal(parseDatePl('2026-09-15'), ''); // wrong format (ISO, not dd-MM-yyyy)
 });
 
 test('addDaysISO adds days across month and year boundaries', () => {

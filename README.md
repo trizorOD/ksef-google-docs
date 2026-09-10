@@ -213,14 +213,17 @@ Two automated emails are sent per outgoing (Sprzedaż) invoice, to the buyer's
 address on the **Contacts** sheet (matched by exact `Buyer` ↔ `Contacts!Name`
 text):
 
-- **Reminder** — sent the day *before* the invoice's due date.
+- **Reminder** — sent once, the day *before* the invoice's due date.
 - **Overdue notice** — sent the day *after* the due date (and caught up on a
-  later run if the server was down on the exact day).
+  later run if the server was down on the exact day), then **re-sent every 7
+  days** for as long as the invoice remains unpaid.
 
 An invoice is skipped if its `Status of payment` cell already reads `Paid`
-or `оплачено` (case-insensitive). Each kind of email is sent at most once
-per invoice — tracked via the `Reminder sent` / `Overdue email sent`
-columns on the Sprzedaż sheet.
+or `оплачено` (case-insensitive). The reminder is sent at most once per
+invoice; the overdue notice repeats on a 7-day cycle until payment is
+recorded. Both are tracked via the `Reminder sent` / `Overdue email sent`
+columns on the Sprzedaż sheet (the overdue column holds the date of the
+*most recent* send, not the first).
 
 **Before enabling the daily cron for the first time**, be aware the overdue
 check has no historical cutoff — it will email an overdue notice for every
