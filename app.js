@@ -228,8 +228,8 @@ app.listen(config.port, () => {
   console.log(`Server running at http://localhost:${config.port}`);
 });
 
-// Daily sync at 11:00 Warsaw time — fetches yesterday + today
-cron.schedule('0 10 * * *', async () => {
+// Daily sync at 13:00 Warsaw time — fetches yesterday + today
+cron.schedule('0 13 * * *', async () => {
   if (syncState.running) {
     console.log('[CRON] Sync already running, skipping scheduled run');
     return;

@@ -13,7 +13,7 @@ A Node.js service that pulls invoices from the Polish e-invoicing system (KSeF) 
 5. Appends new rows to Google Sheets with invoice details + a Drive link
 6. For incoming **corrective invoices** (type KOR): generates a PDF and attaches the Drive link to the `correctiveDriveLink` column of the original invoice's row — no separate row is created
 7. For outgoing **corrective invoices**: skipped entirely (the `Corrective invoice` column is left for manual notes)
-8. Runs on a schedule (daily at 11:00 Warsaw time) and via a web UI
+8. Runs on a schedule (daily at 13:00 Warsaw time) and via a web UI
 
 ---
 
@@ -203,7 +203,7 @@ Uploaded files are shared as "anyone with the link can view" so the link works w
 
 ## Scheduled sync
 
-A cron job runs every day at **11:00 Warsaw time** and syncs the date range from yesterday 00:00 to today 23:59. It skips execution if a manual sync is already running.
+A cron job runs every day at **13:00 Warsaw time** and syncs the date range from yesterday 00:00 to today 23:59. It skips execution if a manual sync is already running.
 
 ---
 
@@ -234,7 +234,7 @@ historical rows you don't want emailed, or trigger the first run manually
 [Ethereal](https://ethereal.email/)) and review the log before pointing
 `SMTP_*` at real credentials.
 
-Runs daily at **09:00 Warsaw time**, independent of the 11:00 KSeF sync.
+Runs daily at **09:00 Warsaw time**, independent of the 13:00 KSeF sync.
 Can also be triggered manually:
 
 ```
