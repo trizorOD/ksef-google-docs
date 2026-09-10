@@ -1,6 +1,6 @@
 const path = require('path');
 const {
-  loadTemplate, renderTemplate, formatAmountPl, formatDatePl, addDaysISO,
+  loadTemplate, renderTemplate, formatAmountPl, formatDatePl, addDaysISO, warsawTodayISO,
 } = require('./template_utils');
 
 const REMINDER_TEMPLATE_PATH = path.join(__dirname, 'templates', 'reminder.txt');
@@ -39,4 +39,75 @@ function buildEmail(action, row) {
   return renderTemplate(template, vars);
 }
 
-module.exports = { isPaidStatus, needsReminder, needsOverdue, decideAction, buildEmail };
+const nodemailer = require('nodemailer');
+const config = require('./config');
+const {
+  ensureSaleHeaderColumns, getSaleRowsForReminders, getContacts,
+  markReminderSent, markOverdueSent,
+} = require('./sheets_client');
+
+function createTransport() {
+  return nodemailer.createTransport({
+    host: config.smtp.host,
+    port: config.smtp.port,
+    secure: config.smtp.secure,
+    auth: { user: config.smtp.user, pass: config.smtp.pass },
+  });
+}
+
+async function runReminders(auth, options = {}) {
+  const log = options.log || (() => {});
+  const todayISO = options.todayISO || warsawTodayISO();
+  const transporter = options.transporter || createTransport();
+
+  log(`Reminder run started for ${todayISO}`);
+
+  await ensureSaleHeaderColumns(auth);
+  const rows = await getSaleRowsForReminders(auth);
+  const contacts = await getContacts(auth);
+
+  const summary = { sentReminder: 0, sentOverdue: 0, skippedNoContact: 0, failed: 0 };
+
+  for (const row of rows) {
+    const action = decideAction(row, todayISO);
+    if (!action) continue;
+
+    const email = contacts.get(row.buyerName.trim().toLowerCase());
+    if (!email) {
+      log(`Skipping ${row.invoiceNumber}: no Contacts email for buyer "${row.buyerName}"`);
+      summary.skippedNoContact++;
+      continue;
+    }
+
+    const rendered = buildEmail(action, row);
+    try {
+      await transporter.sendMail({
+        from: config.smtp.from,
+        to: email,
+        subject: rendered.subject,
+        text: rendered.body,
+      });
+
+      const sentDate = formatDatePl(todayISO);
+      if (action === 'reminder') {
+        await markReminderSent(auth, row.rowNumber, sentDate);
+        summary.sentReminder++;
+      } else {
+        await markOverdueSent(auth, row.rowNumber, sentDate);
+        summary.sentOverdue++;
+      }
+      log(`Sent ${action} email for ${row.invoiceNumber} to ${email}`);
+    } catch (err) {
+      summary.failed++;
+      log(`Failed to send ${action} email for ${row.invoiceNumber}: ${err.message}`);
+    }
+  }
+
+  log(`Reminder run completed: ${summary.sentReminder} reminder(s), ${summary.sentOverdue} overdue, ${summary.skippedNoContact} skipped (no contact), ${summary.failed} failed`);
+  return summary;
+}
+
+module.exports = {
+  isPaidStatus, needsReminder, needsOverdue, decideAction, buildEmail,
+  createTransport, runReminders,
+};
