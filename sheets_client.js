@@ -458,6 +458,24 @@ async function updateIncomingDriveLink(auth, ksefNum, driveLink) {
   return updateDriveLinkForKsef(auth, 'Zakupy (Subject2)', [...EXTRA_PURCHASE_COLUMNS, ...COLUMNS_PURCHASE], ksefNum, driveLink);
 }
 
+function coerceCellText(value) {
+  return value === null || value === undefined ? '' : String(value);
+}
+
+function normalizeSheetDate(value) {
+  if (value === null || value === undefined || value === '') return '';
+  if (typeof value === 'number') {
+    // Google Sheets date serial number: days since the 1899-12-30 epoch.
+    const ms = Math.round((value - 25569) * 86400 * 1000); // 25569 = days from 1899-12-30 to 1970-01-01
+    const d = new Date(ms);
+    const yyyy = d.getUTCFullYear();
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  return String(value);
+}
+
 function parseSaleRowsForReminders(rawRows) {
   const allCols = [...EXTRA_SALE_COLUMNS, ...COLUMNS_SALE];
   const idx = (name) => allCols.indexOf(name);
@@ -465,19 +483,19 @@ function parseSaleRowsForReminders(rawRows) {
 
   for (let i = 1; i < rawRows.length; i++) {
     const r = rawRows[i];
-    const invoiceNumber = r[idx('invoiceNumber')] || '';
+    const invoiceNumber = coerceCellText(r[idx('invoiceNumber')]);
     if (!invoiceNumber) continue;
 
     result.push({
       rowNumber: i + 1,
       invoiceNumber,
-      buyerName: r[idx('buyerName')] || '',
-      issueDate: r[idx('issueDate')] || '',
-      dueDate: r[idx('dueDatePlaceholder')] || '',
+      buyerName: coerceCellText(r[idx('buyerName')]),
+      issueDate: normalizeSheetDate(r[idx('issueDate')]),
+      dueDate: normalizeSheetDate(r[idx('dueDatePlaceholder')]),
       grossAmount: r[idx('grossAmount')] || '',
-      status: r[idx('paymentStatusPlaceholder')] || '',
-      reminderSent: r[idx('reminderSentPlaceholder')] || '',
-      overdueSent: r[idx('overdueSentPlaceholder')] || '',
+      status: coerceCellText(r[idx('paymentStatusPlaceholder')]),
+      reminderSent: coerceCellText(r[idx('reminderSentPlaceholder')]),
+      overdueSent: coerceCellText(r[idx('overdueSentPlaceholder')]),
     });
   }
 
@@ -578,5 +596,6 @@ module.exports = {
   authorize, syncToSheets, writeOutgoing, writeIncoming, getExistingOutgoing, getExistingIncoming,
   updateCorrectiveDriveLink, updateOutgoingDriveLink, updateIncomingDriveLink,
   parseSaleRowsForReminders, parseContactsRows, computeMissingHeaders,
+  normalizeSheetDate, coerceCellText,
   ensureSaleHeaderColumns, getSaleRowsForReminders, getContacts, markReminderSent, markOverdueSent,
 };

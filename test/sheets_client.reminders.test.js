@@ -4,7 +4,13 @@ const {
   parseSaleRowsForReminders,
   parseContactsRows,
   computeMissingHeaders,
+  normalizeSheetDate,
+  coerceCellText,
 } = require('../sheets_client');
+
+// Sheets serial number for 2026-09-11, computed from the 1899-12-30 epoch:
+// Math.round((Date.UTC(2026, 8, 11) - Date.UTC(1899, 11, 30)) / 86400000)
+const SERIAL_2026_09_11 = 46276;
 
 // Column order for Sprzedaż (A..Q) after the schema change:
 // Invoice, Buyer, Issue date, Date added to KSeF, Due date, Date of payment,
@@ -46,6 +52,51 @@ test('parseSaleRowsForReminders reads the tracking columns when already sent', (
   const rows = parseSaleRowsForReminders(raw);
   assert.equal(rows[0].reminderSent, '05-09-2026');
   assert.equal(rows[0].overdueSent, '');
+});
+
+test('parseSaleRowsForReminders converts a Sheets date serial number to an ISO date string', () => {
+  const raw = [['Invoice'], saleRow({ 4: SERIAL_2026_09_11 })];
+  const rows = parseSaleRowsForReminders(raw);
+  assert.equal(rows[0].dueDate, '2026-09-11');
+  assert.equal(typeof rows[0].dueDate, 'string');
+});
+
+test('parseSaleRowsForReminders converts a serial-number issue date too', () => {
+  const raw = [['Invoice'], saleRow({ 2: SERIAL_2026_09_11 })];
+  assert.equal(parseSaleRowsForReminders(raw)[0].issueDate, '2026-09-11');
+});
+
+test('parseSaleRowsForReminders coerces non-string cells to strings without throwing', () => {
+  const raw = [['Invoice'], saleRow({ 0: 12345, 1: 678, 7: 0 })];
+  const rows = parseSaleRowsForReminders(raw);
+  assert.equal(rows[0].invoiceNumber, '12345');
+  assert.equal(rows[0].buyerName, '678');
+  assert.equal(typeof rows[0].buyerName, 'string');
+  // buyerName is later .trim()ed by reminders.js — must not blow up on a number
+  assert.doesNotThrow(() => rows[0].buyerName.trim());
+  assert.equal(rows[0].status, '0');
+});
+
+test('parseSaleRowsForReminders keeps grossAmount numeric', () => {
+  const rows = parseSaleRowsForReminders([['Invoice'], saleRow()]);
+  assert.equal(rows[0].grossAmount, 1230.5);
+  assert.equal(typeof rows[0].grossAmount, 'number');
+});
+
+test('normalizeSheetDate converts serial numbers and passes strings through', () => {
+  assert.equal(normalizeSheetDate(SERIAL_2026_09_11), '2026-09-11');
+  assert.equal(normalizeSheetDate('2026-09-11'), '2026-09-11');
+  assert.equal(normalizeSheetDate(''), '');
+  assert.equal(normalizeSheetDate(null), '');
+  assert.equal(normalizeSheetDate(undefined), '');
+});
+
+test('coerceCellText stringifies values and maps blank-ish values to an empty string', () => {
+  assert.equal(coerceCellText(SERIAL_2026_09_11), '46276');
+  assert.equal(coerceCellText('Acme'), 'Acme');
+  assert.equal(coerceCellText(''), '');
+  assert.equal(coerceCellText(null), '');
+  assert.equal(coerceCellText(undefined), '');
 });
 
 test('parseContactsRows builds a lowercase-name to email map, skipping incomplete rows', () => {
