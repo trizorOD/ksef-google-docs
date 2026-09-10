@@ -1,0 +1,11 @@
+Subject: Przypomnienie o płatności – faktura nr [NUMER]
+
+Dzień dobry,
+
+uprzejmie przypominamy, że termin płatności faktury nr [NUMER] z dnia [DATA] na kwotę [KWOTA] PLN upłynął w dniu [TERMIN PŁATNOŚCI].
+
+Prosimy o uregulowanie należności w najbliższym możliwym terminie.
+
+Jeżeli płatność została już dokonana, prosimy o zignorowanie tej wiadomości.
+
+W razie pytań pozostajemy do dyspozycji.
