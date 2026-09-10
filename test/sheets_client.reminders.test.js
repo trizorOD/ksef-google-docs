@@ -12,14 +12,15 @@ const {
 // Math.round((Date.UTC(2026, 8, 11) - Date.UTC(1899, 11, 30)) / 86400000)
 const SERIAL_2026_09_11 = 46276;
 
-// Column order for Sprzedaż (A..Q) after the schema change:
+// Column order for Sprzedaż (A..R) after the schema change:
 // Invoice, Buyer, Issue date, Date added to KSeF, Due date, Date of payment,
 // Sum, Status of payment, '', Corrective invoice, Link to invoice,
-// Numer KSeF, Kwota netto, Kwota brutto, Kwota VAT, Reminder sent, Overdue email sent
+// Numer KSeF, Kwota netto, Kwota brutto, Kwota VAT, Overdue days (user-owned,
+// never written), Reminder sent, Overdue email sent
 function saleRow(overrides = {}) {
   const base = [
     'FV/1/2026', 'Acme Sp. z o.o.', '2026-09-01', '2026-09-01', '2026-09-11',
-    '', 1230.5, '', '', '', 'https://drive/x', 'KSEF123', 1000, 1230.5, 230.5, '', '',
+    '', 1230.5, '', '', '', 'https://drive/x', 'KSEF123', 1000, 1230.5, 230.5, '', '', '',
   ];
   Object.assign(base, overrides);
   return base;
@@ -48,9 +49,16 @@ test('parseSaleRowsForReminders skips rows with no invoice number', () => {
 });
 
 test('parseSaleRowsForReminders reads the tracking columns when already sent', () => {
-  const raw = [['Invoice'], saleRow({ 15: '05-09-2026', 16: '' })];
+  const raw = [['Invoice'], saleRow({ 16: '05-09-2026', 17: '' })];
   const rows = parseSaleRowsForReminders(raw);
   assert.equal(rows[0].reminderSent, '05-09-2026');
+  assert.equal(rows[0].overdueSent, '');
+});
+
+test('parseSaleRowsForReminders ignores the Overdue days column (never reads or is affected by its contents)', () => {
+  const raw = [['Invoice'], saleRow({ 15: 7 })]; // some formula-computed number the user maintains
+  const rows = parseSaleRowsForReminders(raw);
+  assert.equal(rows[0].reminderSent, '');
   assert.equal(rows[0].overdueSent, '');
 });
 
@@ -120,4 +128,21 @@ test('computeMissingHeaders returns the missing trailing labels', () => {
   const expected = [...current, 'Reminder sent', 'Overdue email sent'];
   const diff = computeMissingHeaders(current, expected);
   assert.deepEqual(diff, { startColIndex: 15, missing: ['Reminder sent', 'Overdue email sent'] });
+});
+
+test('computeMissingHeaders appends after a real-world extra manual column ("Overdue days") without touching it', () => {
+  // Regression test for a production incident: the live sheet has a
+  // 16th column ("Overdue days") that predates this schema and is not
+  // managed by this code. The repair must append the two tracking
+  // headers starting at column Q (index 16), never touch column P.
+  const current = [
+    'Invoice', 'Firma', 'Issue date', 'Date added to KSeF', 'Due date',
+    'Date of payment', 'Sum', 'Status', '', 'Corrective invoice',
+    'Link to invoice', 'Numer KSeF', 'Kwota netto', 'Kwota brutto',
+    'Kwota VAT', 'Overdue days',
+  ];
+  assert.equal(current.length, 16);
+  const expected = [...current.slice(0, 15), 'Overdue days', 'Reminder sent', 'Overdue email sent'];
+  const diff = computeMissingHeaders(current, expected);
+  assert.deepEqual(diff, { startColIndex: 16, missing: ['Reminder sent', 'Overdue email sent'] });
 });

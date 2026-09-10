@@ -78,6 +78,12 @@ const COLUMNS_SALE = [
   'netAmount',
   'grossAmount',
   'vatAmount',
+  // Column P in the live sheet: a manually maintained "Overdue days" column
+  // (formula, filled in by the user) that predates this schema. Left blank
+  // here on purpose — never write a value into it — so new synced rows
+  // don't clobber whatever formula the user has in that column, and so the
+  // reminder-tracking columns below land at Q/R instead of colliding with it.
+  'overdueDaysPlaceholder',
   'reminderSentPlaceholder',
   'overdueSentPlaceholder',
 ];
@@ -87,6 +93,7 @@ const HEADERS_SALE = [
   'Kwota netto',
   'Kwota brutto',
   'Kwota VAT',
+  'Overdue days',
   'Reminder sent',
   'Overdue email sent',
 ];
@@ -268,6 +275,7 @@ function colValue(col, inv) {
     case 'isCorrectiveInvoice':       return inv.invoiceType?.toUpperCase() === 'KOR' ? 'TAK' : '';
     case 'driveLink':                 return inv._driveLink || '';
     case 'correctiveDriveLink':       return inv._correctiveDriveLink || '';
+    case 'overdueDaysPlaceholder':    return ''; // never write here — user-maintained column
     case 'reminderSentPlaceholder':   return '';
     case 'overdueSentPlaceholder':    return '';
     default:                        return '';
