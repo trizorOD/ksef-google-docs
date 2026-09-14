@@ -218,8 +218,11 @@ text):
   later run if the server was down on the exact day), then **re-sent every 7
   days** for as long as the invoice remains unpaid.
 
-An invoice is skipped if its `Status of payment` cell already reads `Paid`
-or `оплачено` (case-insensitive). The reminder is sent at most once per
+Sending is **opt-in, not opt-out**: an invoice only qualifies if its
+`Status of payment` cell reads exactly `не оплачено` (case-insensitive).
+Blank status, `Cancelled`, `Paid`/`оплачено`, or any other value are all
+skipped — this is deliberate, so a cancelled invoice (or one not yet
+triaged) never gets a payment email. The reminder is sent at most once per
 invoice; the overdue notice repeats on a 7-day cycle until payment is
 recorded. Both are tracked via the `Reminder sent` / `Overdue email sent`
 columns on the Sprzedaż sheet (the overdue column holds the date of the

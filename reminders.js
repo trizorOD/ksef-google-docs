@@ -9,9 +9,14 @@ const OVERDUE_TEMPLATE_PATH = path.join(__dirname, 'templates', 'overdue.txt');
 // How often to re-send the overdue notice while an invoice remains unpaid.
 const OVERDUE_FOLLOWUP_DAYS = 7;
 
-function isPaidStatus(text) {
+// Sending is opt-in, not opt-out: only rows explicitly marked "не оплачено"
+// qualify. Blank status, "оплачено"/"Paid", "Cancelled", or anything else
+// is skipped — this prevents emailing invoices that were cancelled or
+// otherwise never confirmed unpaid (see the production incident where
+// Cancelled invoices received overdue notices).
+function isUnpaidStatus(text) {
   const normalized = String(text || '').trim().toLowerCase();
-  return normalized === 'paid' || normalized === 'оплачено';
+  return normalized === 'не оплачено';
 }
 
 function needsReminder(row, todayISO) {
@@ -32,7 +37,7 @@ function needsOverdue(row, todayISO) {
 
 function decideAction(row, todayISO) {
   if (!row.invoiceNumber || !row.dueDate) return null;
-  if (isPaidStatus(row.status)) return null;
+  if (!isUnpaidStatus(row.status)) return null;
   if (needsReminder(row, todayISO)) return 'reminder';
   if (needsOverdue(row, todayISO)) return 'overdue';
   return null;
@@ -147,6 +152,6 @@ async function runReminders(auth, options = {}) {
 }
 
 module.exports = {
-  isPaidStatus, needsReminder, needsOverdue, decideAction, buildEmail,
+  isUnpaidStatus, needsReminder, needsOverdue, decideAction, buildEmail,
   createTransport, runReminders,
 };

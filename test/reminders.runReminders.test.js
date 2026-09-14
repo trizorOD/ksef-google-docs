@@ -13,7 +13,7 @@ function saleRow(overrides = {}) {
     issueDate: '2026-09-01',
     dueDate: '2026-09-11', // tomorrow relative to TODAY -> reminder
     grossAmount: 1230.5,
-    status: '',
+    status: 'не оплачено',
     reminderSent: '',
     overdueSent: '',
     ...overrides,
@@ -184,6 +184,8 @@ test('runReminders skips rows that need no action', async () => {
     saleRow({ invoiceNumber: 'FV/4/2026', dueDate: '2026-09-11', reminderSent: '10-09-2026' }),
     saleRow({ invoiceNumber: 'FV/5/2026', dueDate: '2026-09-01', overdueSent: '05-09-2026' }),
     saleRow({ invoiceNumber: 'FV/6/2026', dueDate: '' }), // no due date
+    saleRow({ invoiceNumber: 'FV/7/2026', dueDate: '2026-09-01', status: 'Cancelled' }), // cancelled
+    saleRow({ invoiceNumber: 'FV/8/2026', dueDate: '2026-09-01', status: '' }), // status not yet set
   ];
   const { sheets, calls } = makeSheets({
     rows,

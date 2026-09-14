@@ -1,16 +1,17 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  isPaidStatus, needsReminder, needsOverdue, decideAction, buildEmail,
+  isUnpaidStatus, needsReminder, needsOverdue, decideAction, buildEmail,
 } = require('../reminders');
 
-test('isPaidStatus recognizes English and Russian "paid" text, case/whitespace-insensitive', () => {
-  assert.equal(isPaidStatus('Paid'), true);
-  assert.equal(isPaidStatus(' paid '), true);
-  assert.equal(isPaidStatus('ОПЛАЧЕНО'), true);
-  assert.equal(isPaidStatus('оплачено'), true);
-  assert.equal(isPaidStatus(''), false);
-  assert.equal(isPaidStatus('Unpaid'), false);
+test('isUnpaidStatus is an allowlist: only "не оплачено" (case/whitespace-insensitive) qualifies', () => {
+  assert.equal(isUnpaidStatus('не оплачено'), true);
+  assert.equal(isUnpaidStatus(' Не Оплачено '), true);
+  assert.equal(isUnpaidStatus('НЕ ОПЛАЧЕНО'), true);
+  assert.equal(isUnpaidStatus(''), false); // blank status does not qualify
+  assert.equal(isUnpaidStatus('Cancelled'), false);
+  assert.equal(isUnpaidStatus('Paid'), false);
+  assert.equal(isUnpaidStatus('оплачено'), false);
 });
 
 test('needsReminder is true only when due date is exactly tomorrow and not yet sent', () => {
@@ -45,14 +46,14 @@ test('needsOverdue treats an unparseable overdueSent value as already handled (n
   assert.equal(needsOverdue({ dueDate: '2026-09-01', overdueSent: 'not-a-date' }, '2026-09-17'), false);
 });
 
-test('decideAction picks reminder, overdue, or null — and skips paid rows', () => {
+test('decideAction picks reminder, overdue, or null — only for status "не оплачено"', () => {
   const today = '2026-09-10';
   assert.equal(
-    decideAction({ invoiceNumber: 'FV/1', dueDate: '2026-09-11', status: '', reminderSent: '', overdueSent: '' }, today),
+    decideAction({ invoiceNumber: 'FV/1', dueDate: '2026-09-11', status: 'не оплачено', reminderSent: '', overdueSent: '' }, today),
     'reminder'
   );
   assert.equal(
-    decideAction({ invoiceNumber: 'FV/1', dueDate: '2026-09-01', status: '', reminderSent: '', overdueSent: '' }, today),
+    decideAction({ invoiceNumber: 'FV/1', dueDate: '2026-09-01', status: 'не оплачено', reminderSent: '', overdueSent: '' }, today),
     'overdue'
   );
   assert.equal(
@@ -60,11 +61,21 @@ test('decideAction picks reminder, overdue, or null — and skips paid rows', ()
     null
   );
   assert.equal(
-    decideAction({ invoiceNumber: '', dueDate: '2026-09-11', status: '', reminderSent: '', overdueSent: '' }, today),
+    decideAction({ invoiceNumber: 'FV/1', dueDate: '2026-09-01', status: 'Cancelled', reminderSent: '', overdueSent: '' }, today),
+    null,
+    'a cancelled invoice must never be emailed, even past its due date'
+  );
+  assert.equal(
+    decideAction({ invoiceNumber: 'FV/1', dueDate: '2026-09-01', status: '', reminderSent: '', overdueSent: '' }, today),
+    null,
+    'blank status does not qualify — someone must explicitly mark it "не оплачено"'
+  );
+  assert.equal(
+    decideAction({ invoiceNumber: '', dueDate: '2026-09-11', status: 'не оплачено', reminderSent: '', overdueSent: '' }, today),
     null
   );
   assert.equal(
-    decideAction({ invoiceNumber: 'FV/1', dueDate: '', status: '', reminderSent: '', overdueSent: '' }, today),
+    decideAction({ invoiceNumber: 'FV/1', dueDate: '', status: 'не оплачено', reminderSent: '', overdueSent: '' }, today),
     null
   );
 });
