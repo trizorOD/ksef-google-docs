@@ -86,6 +86,7 @@ const COLUMNS_SALE = [
   'overdueDaysPlaceholder',
   'reminderSentPlaceholder',
   'overdueSentPlaceholder',
+  'finalNoticeSentPlaceholder',
 ];
 
 const HEADERS_SALE = [
@@ -96,6 +97,7 @@ const HEADERS_SALE = [
   'Overdue days',
   'Reminder sent',
   'Overdue email sent',
+  'Final notice sent',
 ];
 
 // Base columns for incoming (Zakupy / Subject2) — trimmed set
@@ -278,6 +280,7 @@ function colValue(col, inv) {
     case 'overdueDaysPlaceholder':    return ''; // never write here — user-maintained column
     case 'reminderSentPlaceholder':   return '';
     case 'overdueSentPlaceholder':    return '';
+    case 'finalNoticeSentPlaceholder': return '';
     default:                        return '';
   }
 }
@@ -504,6 +507,7 @@ function parseSaleRowsForReminders(rawRows) {
       status: coerceCellText(r[idx('paymentStatusPlaceholder')]),
       reminderSent: coerceCellText(r[idx('reminderSentPlaceholder')]),
       overdueSent: coerceCellText(r[idx('overdueSentPlaceholder')]),
+      finalNoticeSent: coerceCellText(r[idx('finalNoticeSentPlaceholder')]),
     });
   }
 
@@ -600,10 +604,15 @@ async function markOverdueSent(auth, rowNumber, dateStr) {
   return updateSaleCell(auth, rowNumber, 'overdueSentPlaceholder', dateStr);
 }
 
+async function markFinalNoticeSent(auth, rowNumber, dateStr) {
+  return updateSaleCell(auth, rowNumber, 'finalNoticeSentPlaceholder', dateStr);
+}
+
 module.exports = {
   authorize, syncToSheets, writeOutgoing, writeIncoming, getExistingOutgoing, getExistingIncoming,
   updateCorrectiveDriveLink, updateOutgoingDriveLink, updateIncomingDriveLink,
   parseSaleRowsForReminders, parseContactsRows, computeMissingHeaders,
   normalizeSheetDate, coerceCellText,
-  ensureSaleHeaderColumns, getSaleRowsForReminders, getContacts, markReminderSent, markOverdueSent,
+  ensureSaleHeaderColumns, getSaleRowsForReminders, getContacts,
+  markReminderSent, markOverdueSent, markFinalNoticeSent,
 };

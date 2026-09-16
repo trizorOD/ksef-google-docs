@@ -27,7 +27,7 @@ drive_client.js     Google Drive PDF upload
 pdf_generator.js    Parse invoice XML → generate PDF (PDFKit)
 reminders.js        Sends reminder/overdue emails; cron + manual trigger via app.js
 template_utils.js   Email template loading, placeholder rendering, date/amount formatting
-templates/           Email template text files (reminder.txt, overdue.txt)
+templates/           Email template text files (reminder.txt, overdue.txt, final_notice.txt)
 config.js           Reads environment variables
 public/index.html   Web UI (date range picker + live log)
 inspect_invoice.js  Dev utility: fetch one invoice by KSeF number, print parsed JSON, save PDF
@@ -161,6 +161,7 @@ GET /api/sync/status
 | Kwota netto / brutto / VAT | Net / gross / VAT amounts |
 | Reminder sent | Date the day-before-due-date reminder email was sent (blank if not yet sent) |
 | Overdue email sent | Date the day-after-due-date overdue email was sent (blank if not yet sent) |
+| Final notice sent | Date the most recent final-notice email was sent (blank if not yet sent) |
 
 ### Zakupy (Subject2) — incoming invoices
 
@@ -209,24 +210,29 @@ A cron job runs every day at **13:00 Warsaw time** and syncs the date range from
 
 ## Email reminders
 
-Two automated emails are sent per outgoing (Sprzedaż) invoice, to the buyer's
-address on the **Contacts** sheet (matched by exact `Buyer` ↔ `Contacts!Name`
-text):
+Three automated emails escalate per outgoing (Sprzedaż) invoice, to the
+buyer's address on the **Contacts** sheet (matched by exact `Buyer` ↔
+`Contacts!Name` text):
 
-- **Reminder** — sent once, the day *before* the invoice's due date.
-- **Overdue notice** — sent the day *after* the due date (and caught up on a
-  later run if the server was down on the exact day), then **re-sent every 7
-  days** for as long as the invoice remains unpaid.
+1. **Reminder** — sent once, the day *before* the invoice's due date.
+2. **Overdue notice** — sent once, the day *after* the due date (with
+   catch-up if a run was missed).
+3. **Final notice** ("Ostateczne wezwanie do zapłaty") — starts 7 days after
+   the due date, then **re-sends every 7 days** for as long as the invoice
+   remains unpaid. On a catch-up run this takes priority over the (now
+   moot) overdue notice — an invoice that's already 7+ days overdue on its
+   very first check goes straight to the final notice.
 
 Sending is **opt-in, not opt-out**: an invoice only qualifies if its
 `Status of payment` cell reads exactly `не оплачено` (case-insensitive).
 Blank status, `Cancelled`, `Paid`/`оплачено`, or any other value are all
 skipped — this is deliberate, so a cancelled invoice (or one not yet
-triaged) never gets a payment email. The reminder is sent at most once per
-invoice; the overdue notice repeats on a 7-day cycle until payment is
-recorded. Both are tracked via the `Reminder sent` / `Overdue email sent`
-columns on the Sprzedaż sheet (the overdue column holds the date of the
-*most recent* send, not the first).
+triaged) never gets a payment email. The reminder and overdue notice are
+each sent at most once per invoice; the final notice repeats on a 7-day
+cycle until payment is recorded. All three are tracked via the
+`Reminder sent` / `Overdue email sent` / `Final notice sent` columns on the
+Sprzedaż sheet (the final-notice column holds the date of the *most recent*
+send, not the first).
 
 **Before enabling the daily cron for the first time**, be aware the overdue
 check has no historical cutoff — it will email an overdue notice for every
@@ -245,8 +251,11 @@ POST /api/reminders/run
 GET  /api/reminders/status
 ```
 
-Templates live in `templates/reminder.txt` and `templates/overdue.txt`, with
-placeholders `[NUMER]`, `[KWOTA]`, `[DATA]`, `[TERMIN PŁATNOŚCI]`.
+Templates live in `templates/reminder.txt`, `templates/overdue.txt`, and
+`templates/final_notice.txt`, with placeholders `[NUMER]`, `[KWOTA]`,
+`[DATA]`, `[TERMIN PŁATNOŚCI]` (the latter two aren't used by every
+template — `final_notice.txt` only has `[DATA]`, which there means the due
+date rather than the issue date).
 
 Requires SMTP configuration in `.env` (see `.env.example`):
 

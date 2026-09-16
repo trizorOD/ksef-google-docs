@@ -84,3 +84,13 @@ test('overdue.txt loads and renders with the real placeholders', () => {
   const rendered = renderTemplate(template, { NUMER: 'FA/1/2026', KWOTA: '100,00', DATA: '01-09-2026', 'TERMIN PŁATNOŚCI': '09-09-2026' });
   assert.ok(!rendered.body.includes('['));
 });
+
+test('final_notice.txt loads and renders with the real placeholders', () => {
+  const template = loadTemplate(path.join(__dirname, '..', 'templates', 'final_notice.txt'));
+  assert.match(template.subject, /Ostateczne wezwanie/);
+  assert.match(template.body, /\[NUMER\]/);
+  assert.match(template.body, /\[KWOTA\]/);
+  assert.match(template.body, /\[DATA\]/);
+  const rendered = renderTemplate(template, { NUMER: 'FA/1/2026', KWOTA: '100,00', DATA: '09-09-2026' });
+  assert.ok(!rendered.body.includes('['));
+});

@@ -16,13 +16,22 @@ function saleRow(overrides = {}) {
     status: 'не оплачено',
     reminderSent: '',
     overdueSent: '',
+    finalNoticeSent: '',
     ...overrides,
   };
 }
 
+const EMPTY_SUMMARY = {
+  sentReminder: 0, sentOverdue: 0, sentFinal: 0, skippedNoContact: 0, skippedNotAllowlisted: 0, failed: 0, failedToRecord: 0,
+};
+
 // Builds a fake sheets object plus per-function call recorders.
-function makeSheets({ rows = [], contacts = new Map(), markReminderSent, markOverdueSent } = {}) {
-  const calls = { ensureSaleHeaderColumns: [], markReminderSent: [], markOverdueSent: [] };
+function makeSheets({
+  rows = [], contacts = new Map(), markReminderSent, markOverdueSent, markFinalNoticeSent,
+} = {}) {
+  const calls = {
+    ensureSaleHeaderColumns: [], markReminderSent: [], markOverdueSent: [], markFinalNoticeSent: [],
+  };
   const sheets = {
     ensureSaleHeaderColumns: async (...args) => { calls.ensureSaleHeaderColumns.push(args); },
     getSaleRowsForReminders: async () => rows,
@@ -35,6 +44,11 @@ function makeSheets({ rows = [], contacts = new Map(), markReminderSent, markOve
     markOverdueSent: async (...args) => {
       calls.markOverdueSent.push(args);
       if (markOverdueSent) return markOverdueSent(...args);
+      return undefined;
+    },
+    markFinalNoticeSent: async (...args) => {
+      calls.markFinalNoticeSent.push(args);
+      if (markFinalNoticeSent) return markFinalNoticeSent(...args);
       return undefined;
     },
   };
@@ -71,13 +85,12 @@ test('runReminders sends a reminder email and records it on the row', async () =
   assert.match(sent[0].text, /FV\/1\/2026/);
   assert.deepEqual(calls.markReminderSent, [[AUTH, 7, '10-09-2026']]);
   assert.equal(calls.markOverdueSent.length, 0);
-  assert.deepEqual(summary, {
-    sentReminder: 1, sentOverdue: 0, skippedNoContact: 0, skippedNotAllowlisted: 0, failed: 0, failedToRecord: 0,
-  });
+  assert.equal(calls.markFinalNoticeSent.length, 0);
+  assert.deepEqual(summary, { ...EMPTY_SUMMARY, sentReminder: 1 });
 });
 
 test('runReminders sends an overdue email and records it on the row', async () => {
-  const row = saleRow({ dueDate: '2026-09-01' }); // past due -> overdue
+  const row = saleRow({ dueDate: '2026-09-09' }); // 1 day past due -> overdue (not yet final territory)
   const { sheets, calls } = makeSheets({
     rows: [row],
     contacts: contactsFor(row.buyerName, 'billing@acme.pl'),
@@ -91,9 +104,28 @@ test('runReminders sends an overdue email and records it on the row', async () =
   assert.match(sent[0].subject, /FV\/1\/2026/);
   assert.deepEqual(calls.markOverdueSent, [[AUTH, 7, '10-09-2026']]);
   assert.equal(calls.markReminderSent.length, 0);
-  assert.deepEqual(summary, {
-    sentReminder: 0, sentOverdue: 1, skippedNoContact: 0, skippedNotAllowlisted: 0, failed: 0, failedToRecord: 0,
+  assert.equal(calls.markFinalNoticeSent.length, 0);
+  assert.deepEqual(summary, { ...EMPTY_SUMMARY, sentOverdue: 1 });
+});
+
+test('runReminders sends a final notice and records it on the row', async () => {
+  const row = saleRow({ dueDate: '2026-09-01', overdueSent: '02-09-2026' }); // 9 days past due, overdue already sent
+  const { sheets, calls } = makeSheets({
+    rows: [row],
+    contacts: contactsFor(row.buyerName, 'billing@acme.pl'),
   });
+  const { transporter, calls: sent } = makeTransporter();
+
+  const summary = await runReminders(AUTH, { todayISO: TODAY, transporter, sheets });
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].to, 'billing@acme.pl');
+  assert.match(sent[0].subject, /Ostateczne wezwanie/);
+  assert.match(sent[0].text, /FV\/1\/2026/);
+  assert.deepEqual(calls.markFinalNoticeSent, [[AUTH, 7, '10-09-2026']]);
+  assert.equal(calls.markReminderSent.length, 0);
+  assert.equal(calls.markOverdueSent.length, 0);
+  assert.deepEqual(summary, { ...EMPTY_SUMMARY, sentFinal: 1 });
 });
 
 test('runReminders skips a row with no matching Contacts email', async () => {
@@ -106,6 +138,7 @@ test('runReminders skips a row with no matching Contacts email', async () => {
   assert.equal(sent.length, 0);
   assert.equal(calls.markReminderSent.length, 0);
   assert.equal(calls.markOverdueSent.length, 0);
+  assert.equal(calls.markFinalNoticeSent.length, 0);
   assert.equal(summary.skippedNoContact, 1);
   assert.equal(summary.sentReminder, 0);
   assert.equal(summary.sentOverdue, 0);
@@ -128,6 +161,7 @@ test('runReminders never marks a row sent when the send itself fails', async () 
   assert.equal(sent.length, 1);
   assert.equal(calls.markReminderSent.length, 0, 'a failed send must not mark the row');
   assert.equal(calls.markOverdueSent.length, 0);
+  assert.equal(calls.markFinalNoticeSent.length, 0);
   assert.equal(summary.failed, 1);
   assert.equal(summary.sentReminder, 0);
   assert.equal(summary.failedToRecord, 0);
@@ -157,7 +191,7 @@ test('runReminders counts a sent email whose sheet write fails as sent-but-not-r
 });
 
 test('runReminders counts an overdue email whose sheet write fails as sent-but-not-recorded', async () => {
-  const row = saleRow({ dueDate: '2026-09-01' });
+  const row = saleRow({ dueDate: '2026-09-09' });
   const { sheets, calls } = makeSheets({
     rows: [row],
     contacts: contactsFor(row.buyerName, 'billing@acme.pl'),
@@ -182,7 +216,8 @@ test('runReminders skips rows that need no action', async () => {
     saleRow({ invoiceNumber: 'FV/2/2026', dueDate: '2026-09-20' }), // not due yet
     saleRow({ invoiceNumber: 'FV/3/2026', dueDate: '2026-09-01', status: 'Paid' }), // paid
     saleRow({ invoiceNumber: 'FV/4/2026', dueDate: '2026-09-11', reminderSent: '10-09-2026' }),
-    saleRow({ invoiceNumber: 'FV/5/2026', dueDate: '2026-09-01', overdueSent: '05-09-2026' }),
+    // overdue already sent, not yet 7 days past due -> no action (not "final" territory yet)
+    saleRow({ invoiceNumber: 'FV/5/2026', dueDate: '2026-09-04', overdueSent: '05-09-2026' }),
     saleRow({ invoiceNumber: 'FV/6/2026', dueDate: '' }), // no due date
     saleRow({ invoiceNumber: 'FV/7/2026', dueDate: '2026-09-01', status: 'Cancelled' }), // cancelled
     saleRow({ invoiceNumber: 'FV/8/2026', dueDate: '2026-09-01', status: '' }), // status not yet set
@@ -198,9 +233,8 @@ test('runReminders skips rows that need no action', async () => {
   assert.equal(sent.length, 0);
   assert.equal(calls.markReminderSent.length, 0);
   assert.equal(calls.markOverdueSent.length, 0);
-  assert.deepEqual(summary, {
-    sentReminder: 0, sentOverdue: 0, skippedNoContact: 0, skippedNotAllowlisted: 0, failed: 0, failedToRecord: 0,
-  });
+  assert.equal(calls.markFinalNoticeSent.length, 0);
+  assert.deepEqual(summary, EMPTY_SUMMARY);
 });
 
 test('runReminders with a testOnlyRecipients allowlist only sends to listed addresses', async () => {

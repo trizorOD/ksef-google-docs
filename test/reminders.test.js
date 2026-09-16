@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  isUnpaidStatus, needsReminder, needsOverdue, decideAction, buildEmail,
+  isUnpaidStatus, needsReminder, needsOverdue, needsFinalNotice, decideAction, buildEmail,
 } = require('../reminders');
 
 test('isUnpaidStatus is an allowlist: only "не оплачено" (case/whitespace-insensitive) qualifies', () => {
@@ -23,59 +23,77 @@ test('needsReminder is true only when due date is exactly tomorrow and not yet s
   assert.equal(needsReminder({ dueDate: '', reminderSent: '' }, today), false);
 });
 
-test('needsOverdue is true once due date is in the past and not yet sent, with catch-up', () => {
+test('needsOverdue is a single-shot: true once due date is in the past and not yet sent, with catch-up', () => {
   const today = '2026-09-10';
   assert.equal(needsOverdue({ dueDate: '2026-09-09', overdueSent: '' }, today), true);
   assert.equal(needsOverdue({ dueDate: '2026-08-01', overdueSent: '' }, today), true); // catch-up
   assert.equal(needsOverdue({ dueDate: '2026-09-10', overdueSent: '' }, today), false); // due today, not overdue yet
 });
 
-test('needsOverdue re-sends the follow-up every 7 days while still unpaid', () => {
-  const today = '2026-09-17';
+test('needsOverdue never fires again once already sent (no repeat — that is needsFinalNotice\'s job now)', () => {
+  assert.equal(needsOverdue({ dueDate: '2026-08-01', overdueSent: '02-08-2026' }, '2026-09-10'), false);
+});
+
+test('needsFinalNotice is false before FINAL_NOTICE_DELAY_DAYS have passed since the due date', () => {
+  const dueDate = '2026-09-01';
+  assert.equal(needsFinalNotice({ dueDate, finalNoticeSent: '' }, '2026-09-07'), false); // 6 days
+  assert.equal(needsFinalNotice({ dueDate, finalNoticeSent: '' }, '2026-09-08'), true); // 7 days — boundary
+});
+
+test('needsFinalNotice re-sends every FINAL_NOTICE_REPEAT_DAYS while unpaid', () => {
+  const dueDate = '2026-09-01';
   // sent yesterday -> too soon
-  assert.equal(needsOverdue({ dueDate: '2026-09-01', overdueSent: '16-09-2026' }, today), false);
-  // sent 3 days ago -> still too soon
-  assert.equal(needsOverdue({ dueDate: '2026-09-01', overdueSent: '14-09-2026' }, today), false);
+  assert.equal(needsFinalNotice({ dueDate, finalNoticeSent: '16-09-2026' }, '2026-09-17'), false);
   // sent exactly 7 days ago -> follow-up due (boundary, inclusive)
-  assert.equal(needsOverdue({ dueDate: '2026-09-01', overdueSent: '10-09-2026' }, today), true);
-  // sent 10 days ago -> overdue for a follow-up
-  assert.equal(needsOverdue({ dueDate: '2026-09-01', overdueSent: '07-09-2026' }, today), true);
+  assert.equal(needsFinalNotice({ dueDate, finalNoticeSent: '10-09-2026' }, '2026-09-17'), true);
+  // sent 10 days ago
+  assert.equal(needsFinalNotice({ dueDate, finalNoticeSent: '07-09-2026' }, '2026-09-17'), true);
 });
 
-test('needsOverdue treats an unparseable overdueSent value as already handled (no resend)', () => {
-  assert.equal(needsOverdue({ dueDate: '2026-09-01', overdueSent: 'not-a-date' }, '2026-09-17'), false);
+test('needsFinalNotice treats an unparseable finalNoticeSent value as already handled (no resend)', () => {
+  assert.equal(needsFinalNotice({ dueDate: '2026-09-01', finalNoticeSent: 'not-a-date' }, '2026-09-17'), false);
 });
 
-test('decideAction picks reminder, overdue, or null — only for status "не оплачено"', () => {
+test('decideAction escalates reminder -> overdue -> final, only for status "не оплачено"', () => {
   const today = '2026-09-10';
   assert.equal(
-    decideAction({ invoiceNumber: 'FV/1', dueDate: '2026-09-11', status: 'не оплачено', reminderSent: '', overdueSent: '' }, today),
+    decideAction({ invoiceNumber: 'FV/1', dueDate: '2026-09-11', status: 'не оплачено', reminderSent: '', overdueSent: '', finalNoticeSent: '' }, today),
     'reminder'
   );
   assert.equal(
-    decideAction({ invoiceNumber: 'FV/1', dueDate: '2026-09-01', status: 'не оплачено', reminderSent: '', overdueSent: '' }, today),
+    decideAction({ invoiceNumber: 'FV/1', dueDate: '2026-09-09', status: 'не оплачено', reminderSent: '', overdueSent: '', finalNoticeSent: '' }, today),
     'overdue'
   );
   assert.equal(
-    decideAction({ invoiceNumber: 'FV/1', dueDate: '2026-09-11', status: 'Paid', reminderSent: '', overdueSent: '' }, today),
+    decideAction({ invoiceNumber: 'FV/1', dueDate: '2026-08-20', status: 'не оплачено', reminderSent: '', overdueSent: '21-08-2026', finalNoticeSent: '' }, today),
+    'final',
+    '7+ days past due, overdue already sent once -> final notice'
+  );
+  assert.equal(
+    decideAction({ invoiceNumber: 'FV/1', dueDate: '2026-08-01', status: 'не оплачено', reminderSent: '', overdueSent: '', finalNoticeSent: '' }, today),
+    'final',
+    'catch-up: far enough past due that final wins even though overdue was never sent'
+  );
+  assert.equal(
+    decideAction({ invoiceNumber: 'FV/1', dueDate: '2026-09-11', status: 'Paid', reminderSent: '', overdueSent: '', finalNoticeSent: '' }, today),
     null
   );
   assert.equal(
-    decideAction({ invoiceNumber: 'FV/1', dueDate: '2026-09-01', status: 'Cancelled', reminderSent: '', overdueSent: '' }, today),
+    decideAction({ invoiceNumber: 'FV/1', dueDate: '2026-09-01', status: 'Cancelled', reminderSent: '', overdueSent: '', finalNoticeSent: '' }, today),
     null,
     'a cancelled invoice must never be emailed, even past its due date'
   );
   assert.equal(
-    decideAction({ invoiceNumber: 'FV/1', dueDate: '2026-09-01', status: '', reminderSent: '', overdueSent: '' }, today),
+    decideAction({ invoiceNumber: 'FV/1', dueDate: '2026-09-01', status: '', reminderSent: '', overdueSent: '', finalNoticeSent: '' }, today),
     null,
     'blank status does not qualify — someone must explicitly mark it "не оплачено"'
   );
   assert.equal(
-    decideAction({ invoiceNumber: '', dueDate: '2026-09-11', status: 'не оплачено', reminderSent: '', overdueSent: '' }, today),
+    decideAction({ invoiceNumber: '', dueDate: '2026-09-11', status: 'не оплачено', reminderSent: '', overdueSent: '', finalNoticeSent: '' }, today),
     null
   );
   assert.equal(
-    decideAction({ invoiceNumber: 'FV/1', dueDate: '', status: 'не оплачено', reminderSent: '', overdueSent: '' }, today),
+    decideAction({ invoiceNumber: 'FV/1', dueDate: '', status: 'не оплачено', reminderSent: '', overdueSent: '', finalNoticeSent: '' }, today),
     null
   );
 });
@@ -96,5 +114,17 @@ test('buildEmail renders the overdue template with row data', () => {
   assert.ok(rendered.subject.includes('FV/2/2026'));
   assert.ok(rendered.body.includes('01-08-2026'));
   assert.ok(rendered.body.includes('09-09-2026'));
+  assert.ok(!rendered.body.includes('['));
+});
+
+test('buildEmail renders the final notice template, using the due date (not issue date) for [DATA]', () => {
+  const rendered = buildEmail('final', {
+    invoiceNumber: 'FV/3/2026', grossAmount: 750.25, issueDate: '2026-08-01', dueDate: '2026-09-09',
+  });
+  assert.ok(rendered.subject.includes('Ostateczne wezwanie'));
+  assert.ok(rendered.body.includes('FV/3/2026'));
+  assert.ok(rendered.body.includes('750,25'));
+  assert.ok(rendered.body.includes('09-09-2026')); // the due date
+  assert.ok(!rendered.body.includes('01-08-2026')); // NOT the issue date
   assert.ok(!rendered.body.includes('['));
 });

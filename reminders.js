@@ -5,9 +5,12 @@ const {
 
 const REMINDER_TEMPLATE_PATH = path.join(__dirname, 'templates', 'reminder.txt');
 const OVERDUE_TEMPLATE_PATH = path.join(__dirname, 'templates', 'overdue.txt');
+const FINAL_NOTICE_TEMPLATE_PATH = path.join(__dirname, 'templates', 'final_notice.txt');
 
-// How often to re-send the overdue notice while an invoice remains unpaid.
-const OVERDUE_FOLLOWUP_DAYS = 7;
+// Days after the due date before the first final notice, and the repeat
+// interval for it thereafter while the invoice remains unpaid.
+const FINAL_NOTICE_DELAY_DAYS = 7;
+const FINAL_NOTICE_REPEAT_DAYS = 7;
 
 // Sending is opt-in, not opt-out: only rows explicitly marked "не оплачено"
 // qualify. Blank status, "оплачено"/"Paid", "Cancelled", or anything else
@@ -23,33 +26,56 @@ function needsReminder(row, todayISO) {
   return !!row.dueDate && !row.reminderSent && row.dueDate === addDaysISO(todayISO, 1);
 }
 
+// Single-shot: the day-after-due-date notice, sent at most once per
+// invoice (with catch-up if a run was missed). From FINAL_NOTICE_DELAY_DAYS
+// after the due date onward, needsFinalNotice takes over instead of this
+// repeating — see decideAction's priority order below.
 function needsOverdue(row, todayISO) {
-  if (!row.dueDate || row.dueDate >= todayISO) return false;
-  if (!row.overdueSent) return true; // first overdue notice for this invoice
+  return !!row.dueDate && !row.overdueSent && row.dueDate < todayISO;
+}
 
-  // Already sent at least once — re-send every OVERDUE_FOLLOWUP_DAYS while
-  // still unpaid. If the previous send date can't be parsed, don't guess:
-  // treat it as "already handled" rather than risk a spam loop.
-  const lastSentISO = parseDatePl(row.overdueSent);
+function needsFinalNotice(row, todayISO) {
+  if (!row.dueDate) return false;
+  if (addDaysISO(row.dueDate, FINAL_NOTICE_DELAY_DAYS) > todayISO) return false;
+  if (!row.finalNoticeSent) return true; // first final notice
+
+  // Already sent at least once — re-send every FINAL_NOTICE_REPEAT_DAYS
+  // while still unpaid. An unparseable previous-send value is treated as
+  // already handled rather than guessed at (same rule as needsOverdue used
+  // to follow — see git history — to avoid a spam loop on bad data).
+  const lastSentISO = parseDatePl(row.finalNoticeSent);
   if (!lastSentISO) return false;
-  return addDaysISO(lastSentISO, OVERDUE_FOLLOWUP_DAYS) <= todayISO;
+  return addDaysISO(lastSentISO, FINAL_NOTICE_REPEAT_DAYS) <= todayISO;
 }
 
 function decideAction(row, todayISO) {
   if (!row.invoiceNumber || !row.dueDate) return null;
   if (!isUnpaidStatus(row.status)) return null;
   if (needsReminder(row, todayISO)) return 'reminder';
+  // Checked before needsOverdue: once the final-notice threshold is
+  // reached, escalation wins even on a catch-up run where the day-after
+  // notice was never sent (overdueSent stays blank in that case — harmless,
+  // since decideAction never reaches needsOverdue once this is true).
+  if (needsFinalNotice(row, todayISO)) return 'final';
   if (needsOverdue(row, todayISO)) return 'overdue';
   return null;
 }
 
+const TEMPLATE_PATHS = {
+  reminder: REMINDER_TEMPLATE_PATH,
+  overdue: OVERDUE_TEMPLATE_PATH,
+  final: FINAL_NOTICE_TEMPLATE_PATH,
+};
+
 function buildEmail(action, row) {
-  const templatePath = action === 'reminder' ? REMINDER_TEMPLATE_PATH : OVERDUE_TEMPLATE_PATH;
-  const template = loadTemplate(templatePath);
+  const template = loadTemplate(TEMPLATE_PATHS[action]);
   const vars = {
     NUMER: row.invoiceNumber,
     KWOTA: formatAmountPl(row.grossAmount),
-    DATA: formatDatePl(row.issueDate),
+    // final_notice.txt's [DATA] reads "termin płatności upłynął [DATA]" —
+    // there it means the due date, not the issue date like the other two
+    // templates.
+    DATA: formatDatePl(action === 'final' ? row.dueDate : row.issueDate),
     'TERMIN PŁATNOŚCI': formatDatePl(row.dueDate),
   };
   return renderTemplate(template, vars);
@@ -59,7 +85,7 @@ const nodemailer = require('nodemailer');
 const config = require('./config');
 const {
   ensureSaleHeaderColumns, getSaleRowsForReminders, getContacts,
-  markReminderSent, markOverdueSent,
+  markReminderSent, markOverdueSent, markFinalNoticeSent,
 } = require('./sheets_client');
 
 function createTransport() {
@@ -81,6 +107,7 @@ async function runReminders(auth, options = {}) {
     getContacts,
     markReminderSent,
     markOverdueSent,
+    markFinalNoticeSent,
     ...options.sheets,
   };
 
@@ -91,13 +118,19 @@ async function runReminders(auth, options = {}) {
   const contacts = await sheets.getContacts(auth);
 
   const summary = {
-    sentReminder: 0, sentOverdue: 0, skippedNoContact: 0, skippedNotAllowlisted: 0, failed: 0, failedToRecord: 0,
+    sentReminder: 0, sentOverdue: 0, sentFinal: 0, skippedNoContact: 0, skippedNotAllowlisted: 0, failed: 0, failedToRecord: 0,
   };
 
   const allowlist = options.testOnlyRecipients || config.smtp.testOnlyRecipients;
   if (allowlist.length) {
     log(`TEST MODE: only sending to allowlisted recipient(s): ${allowlist.join(', ')} — everything else will be skipped`);
   }
+
+  const ACTION_META = {
+    reminder: { counterKey: 'sentReminder', mark: sheets.markReminderSent },
+    overdue: { counterKey: 'sentOverdue', mark: sheets.markOverdueSent },
+    final: { counterKey: 'sentFinal', mark: sheets.markFinalNoticeSent },
+  };
 
   for (const row of rows) {
     const action = decideAction(row, todayISO);
@@ -131,27 +164,24 @@ async function runReminders(auth, options = {}) {
       continue;
     }
 
-    if (action === 'reminder') summary.sentReminder++; else summary.sentOverdue++;
+    const { counterKey, mark } = ACTION_META[action];
+
+    summary[counterKey]++;
     log(`Sent ${action} email for ${row.invoiceNumber} to ${email}`);
 
     try {
-      const sentDate = formatDatePl(todayISO);
-      if (action === 'reminder') {
-        await sheets.markReminderSent(auth, row.rowNumber, sentDate);
-      } else {
-        await sheets.markOverdueSent(auth, row.rowNumber, sentDate);
-      }
+      await mark(auth, row.rowNumber, formatDatePl(todayISO));
     } catch (err) {
       summary.failedToRecord++;
       log(`WARNING: sent ${action} email for ${row.invoiceNumber} to ${email} but failed to record it in the sheet (row ${row.rowNumber}) — a duplicate may be sent next run: ${err.message}`);
     }
   }
 
-  log(`Reminder run completed: ${summary.sentReminder} reminder(s), ${summary.sentOverdue} overdue, ${summary.skippedNoContact} skipped (no contact), ${summary.skippedNotAllowlisted} skipped (not allowlisted), ${summary.failed} failed, ${summary.failedToRecord} sent but not recorded`);
+  log(`Reminder run completed: ${summary.sentReminder} reminder(s), ${summary.sentOverdue} overdue, ${summary.sentFinal} final notice(s), ${summary.skippedNoContact} skipped (no contact), ${summary.skippedNotAllowlisted} skipped (not allowlisted), ${summary.failed} failed, ${summary.failedToRecord} sent but not recorded`);
   return summary;
 }
 
 module.exports = {
-  isUnpaidStatus, needsReminder, needsOverdue, decideAction, buildEmail,
+  isUnpaidStatus, needsReminder, needsOverdue, needsFinalNotice, decideAction, buildEmail,
   createTransport, runReminders,
 };
