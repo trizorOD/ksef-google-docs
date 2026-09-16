@@ -38,6 +38,7 @@ test('parseSaleRowsForReminders maps raw rows to reminder row objects, skipping 
     dueDate: '2026-09-11',
     grossAmount: 1230.5,
     status: '',
+    ksefNumber: 'KSEF123',
     reminderSent: '',
     overdueSent: '',
     finalNoticeSent: '',

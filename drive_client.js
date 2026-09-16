@@ -99,4 +99,30 @@ async function replacePdf(auth, pdfBuffer, filename) {
   return res.data.webViewLink;
 }
 
-module.exports = { uploadPdf, replacePdf };
+// Downloads the raw bytes of a PDF previously uploaded by uploadPdf/
+// replacePdf, found by its filename in the KSeF Faktury folder. (The
+// "Link to invoice" cell can't reliably be parsed back into a file ID:
+// Google Sheets turns a plain Drive URL into a "smart chip" on write,
+// which then displays the file's *name* through the regular Sheets API —
+// the real URL only lives in chip metadata that values.get can't see.
+// Looking the file up by name sidesteps that entirely.)
+async function downloadPdfByFilename(auth, filename) {
+  const drive = google.drive({ version: 'v3', auth });
+  const folderId = await getOrCreateFolder(drive);
+
+  const existing = await drive.files.list({
+    q: `name='${filename}' and '${folderId}' in parents and trashed=false`,
+    fields: 'files(id)',
+  });
+  if (!existing.data.files.length) {
+    throw new Error(`No file named "${filename}" found in the KSeF Faktury folder`);
+  }
+
+  const res = await drive.files.get(
+    { fileId: existing.data.files[0].id, alt: 'media' },
+    { responseType: 'arraybuffer' }
+  );
+  return Buffer.from(res.data);
+}
+
+module.exports = { uploadPdf, replacePdf, downloadPdfByFilename };

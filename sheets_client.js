@@ -508,6 +508,7 @@ function parseSaleRowsForReminders(rawRows) {
       dueDate: normalizeSheetDate(r[idx('dueDatePlaceholder')]),
       grossAmount: r[idx('grossAmount')] || '',
       status: coerceCellText(r[idx('paymentStatusPlaceholder')]),
+      ksefNumber: coerceCellText(r[idx('ksefNumber')]),
       reminderSent: coerceCellText(r[idx('reminderSentPlaceholder')]),
       overdueSent: coerceCellText(r[idx('overdueSentPlaceholder')]),
       finalNoticeSent: coerceCellText(r[idx('finalNoticeSentPlaceholder')]),

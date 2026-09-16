@@ -87,6 +87,13 @@ const {
   ensureSaleHeaderColumns, getSaleRowsForReminders, getContacts,
   markReminderSent, markOverdueSent, markFinalNoticeSent,
 } = require('./sheets_client');
+const { downloadPdfByFilename } = require('./drive_client');
+
+// Sprzedaż invoice numbers can contain '/' (e.g. "FV/2026/665"), unsafe in
+// an attachment filename.
+function safeAttachmentName(invoiceNumber) {
+  return `${invoiceNumber.replace(/[\\/]/g, '_')}.pdf`;
+}
 
 function createTransport() {
   return nodemailer.createTransport({
@@ -101,6 +108,7 @@ async function runReminders(auth, options = {}) {
   const log = options.log || (() => {});
   const todayISO = options.todayISO || warsawTodayISO();
   const transporter = options.transporter || createTransport();
+  const downloadAttachment = options.downloadAttachment || downloadPdfByFilename;
   const sheets = {
     ensureSaleHeaderColumns,
     getSaleRowsForReminders,
@@ -151,12 +159,25 @@ async function runReminders(auth, options = {}) {
 
     const rendered = buildEmail(action, row);
 
+    let attachments = [];
+    if (row.ksefNumber) {
+      try {
+        const pdfBuffer = await downloadAttachment(auth, `${row.ksefNumber}.pdf`);
+        attachments = [{ filename: safeAttachmentName(row.invoiceNumber), content: pdfBuffer }];
+      } catch (err) {
+        log(`WARNING: could not attach PDF for ${row.invoiceNumber}, sending without it: ${err.message}`);
+      }
+    } else {
+      log(`No KSeF number on file for ${row.invoiceNumber} — sending without PDF attachment`);
+    }
+
     try {
       await transporter.sendMail({
         from: config.smtp.from,
         to: email,
         subject: rendered.subject,
         text: rendered.body,
+        attachments,
       });
     } catch (err) {
       summary.failed++;

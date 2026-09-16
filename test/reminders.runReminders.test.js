@@ -14,6 +14,7 @@ function saleRow(overrides = {}) {
     dueDate: '2026-09-11', // tomorrow relative to TODAY -> reminder
     grossAmount: 1230.5,
     status: 'не оплачено',
+    ksefNumber: '', // most tests don't care about the attachment; set explicitly where they do
     reminderSent: '',
     overdueSent: '',
     finalNoticeSent: '',
@@ -68,6 +69,16 @@ function makeTransporter({ fail } = {}) {
 }
 
 const contactsFor = (name, email) => new Map([[name.trim().toLowerCase(), email]]);
+
+function makeDownloadAttachment({ fail, buffer } = {}) {
+  const calls = [];
+  const downloadAttachment = async (...args) => {
+    calls.push(args);
+    if (fail) throw new Error('Drive download failed');
+    return buffer || Buffer.from('%PDF-fake');
+  };
+  return { downloadAttachment, calls };
+}
 
 test('runReminders sends a reminder email and records it on the row', async () => {
   const row = saleRow();
@@ -126,6 +137,61 @@ test('runReminders sends a final notice and records it on the row', async () => 
   assert.equal(calls.markReminderSent.length, 0);
   assert.equal(calls.markOverdueSent.length, 0);
   assert.deepEqual(summary, { ...EMPTY_SUMMARY, sentFinal: 1 });
+});
+
+test('runReminders attaches the invoice PDF when the row has a KSeF number', async () => {
+  const row = saleRow({ ksefNumber: 'KSEF-123-ABC' });
+  const { sheets } = makeSheets({
+    rows: [row],
+    contacts: contactsFor(row.buyerName, 'billing@acme.pl'),
+  });
+  const { transporter, calls: sent } = makeTransporter();
+  const { downloadAttachment, calls: downloads } = makeDownloadAttachment({ buffer: Buffer.from('%PDF-1.4 fake') });
+
+  const summary = await runReminders(AUTH, { todayISO: TODAY, transporter, sheets, downloadAttachment });
+
+  assert.equal(downloads.length, 1);
+  assert.deepEqual(downloads[0], [AUTH, `${row.ksefNumber}.pdf`]);
+  assert.equal(sent[0].attachments.length, 1);
+  assert.equal(sent[0].attachments[0].filename, 'FV_1_2026.pdf');
+  assert.deepEqual(sent[0].attachments[0].content, Buffer.from('%PDF-1.4 fake'));
+  assert.equal(summary.sentReminder, 1);
+});
+
+test('runReminders sends without an attachment (and logs why) when the row has no KSeF number', async () => {
+  const row = saleRow({ ksefNumber: '' });
+  const { sheets } = makeSheets({
+    rows: [row],
+    contacts: contactsFor(row.buyerName, 'billing@acme.pl'),
+  });
+  const { transporter, calls: sent } = makeTransporter();
+  const lines = [];
+
+  await runReminders(AUTH, { todayISO: TODAY, transporter, sheets, log: (l) => lines.push(l) });
+
+  assert.deepEqual(sent[0].attachments, []);
+  assert.ok(lines.some((l) => l.includes('No KSeF number on file for FV/1/2026')));
+});
+
+test('runReminders still sends the email (without attachment, with a warning) when the PDF download fails', async () => {
+  const row = saleRow({ ksefNumber: 'KSEF-123-ABC' });
+  const { sheets } = makeSheets({
+    rows: [row],
+    contacts: contactsFor(row.buyerName, 'billing@acme.pl'),
+  });
+  const { transporter, calls: sent } = makeTransporter();
+  const { downloadAttachment } = makeDownloadAttachment({ fail: true });
+  const lines = [];
+
+  const summary = await runReminders(AUTH, {
+    todayISO: TODAY, transporter, sheets, downloadAttachment, log: (l) => lines.push(l),
+  });
+
+  assert.equal(sent.length, 1, 'the email still goes out even though the attachment failed');
+  assert.deepEqual(sent[0].attachments, []);
+  assert.equal(summary.sentReminder, 1);
+  assert.equal(summary.failed, 0);
+  assert.ok(lines.some((l) => l.includes('WARNING') && l.includes('could not attach PDF for FV/1/2026')));
 });
 
 test('runReminders skips a row with no matching Contacts email', async () => {
