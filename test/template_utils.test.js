@@ -4,7 +4,9 @@ const path = require('node:path');
 const {
   parseTemplateContent,
   loadTemplate,
+  loadHtmlBody,
   renderTemplate,
+  substitutePlaceholders,
   formatAmountPl,
   formatDatePl,
   parseDatePl,
@@ -94,3 +96,40 @@ test('final_notice.txt loads and renders with the real placeholders', () => {
   const rendered = renderTemplate(template, { NUMER: 'FA/1/2026', KWOTA: '100,00', DATA: '09-09-2026' });
   assert.ok(!rendered.body.includes('['));
 });
+
+test('loadHtmlBody reads a file as-is, with no subject-line parsing', () => {
+  const content = 'Subject: not-a-subject\n<div>Hello [NAME]</div>';
+  require('node:fs').writeFileSync(path.join(__dirname, '_tmp_html_body_test.html'), content);
+  try {
+    const body = loadHtmlBody(path.join(__dirname, '_tmp_html_body_test.html'));
+    assert.equal(body, content);
+  } finally {
+    require('node:fs').unlinkSync(path.join(__dirname, '_tmp_html_body_test.html'));
+  }
+});
+
+test('substitutePlaceholders replaces every [KEY] occurrence in a plain string', () => {
+  assert.equal(
+    substitutePlaceholders('Faktura [NUMER], kwota [KWOTA]', { NUMER: 'FA/1', KWOTA: '10,00' }),
+    'Faktura FA/1, kwota 10,00'
+  );
+});
+
+for (const [name, subjectMatch] of [
+  ['reminder.html', /\[NUMER\]/],
+  ['overdue.html', /\[TERMIN PŁATNOŚCI\]/],
+  ['final_notice.html', /\[KWOTA\]/],
+]) {
+  test(`${name} loads and renders with the real placeholders, logo, and site link`, () => {
+    const filePath = path.join(__dirname, '..', 'templates', name);
+    const body = loadHtmlBody(filePath);
+    assert.match(body, subjectMatch);
+    assert.match(body, /cid:logo/);
+    assert.match(body, /https:\/\/finespirits\.pl\//);
+
+    const rendered = substitutePlaceholders(body, {
+      NUMER: 'FA/1/2026', KWOTA: '100,00', DATA: '09-09-2026', 'TERMIN PŁATNOŚCI': '09-09-2026',
+    });
+    assert.ok(!rendered.includes('['));
+  });
+}

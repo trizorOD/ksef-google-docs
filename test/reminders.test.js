@@ -98,33 +98,47 @@ test('decideAction escalates reminder -> overdue -> final, only for status "не
   );
 });
 
-test('buildEmail renders the reminder template with row data', () => {
+test('buildEmail renders the reminder template (text + html) with row data', () => {
   const rendered = buildEmail('reminder', {
     invoiceNumber: 'FV/1/2026', grossAmount: 1230.5, issueDate: '2026-09-01', dueDate: '2026-09-11',
   });
   assert.ok(rendered.subject.includes('FV/1/2026'));
-  assert.ok(rendered.body.includes('1230,50'));
-  assert.ok(!rendered.body.includes('['));
+  assert.ok(rendered.text.includes('1230,50'));
+  assert.ok(!rendered.text.includes('['));
+  assert.ok(rendered.html.includes('FV/1/2026'));
+  assert.ok(rendered.html.includes('1230,50'));
+  assert.ok(rendered.html.includes('cid:logo'));
+  assert.ok(rendered.html.includes('https://finespirits.pl/'));
+  assert.ok(!rendered.html.includes('['));
 });
 
-test('buildEmail renders the overdue template with row data', () => {
+test('buildEmail renders the overdue template (text + html) with row data', () => {
   const rendered = buildEmail('overdue', {
     invoiceNumber: 'FV/2/2026', grossAmount: 500, issueDate: '2026-08-01', dueDate: '2026-09-09',
   });
   assert.ok(rendered.subject.includes('FV/2/2026'));
-  assert.ok(rendered.body.includes('01-08-2026'));
-  assert.ok(rendered.body.includes('09-09-2026'));
-  assert.ok(!rendered.body.includes('['));
+  assert.ok(rendered.text.includes('01-08-2026'));
+  assert.ok(rendered.text.includes('09-09-2026'));
+  assert.ok(!rendered.text.includes('['));
+  assert.ok(rendered.html.includes('01-08-2026'));
+  assert.ok(rendered.html.includes('09-09-2026'));
+  assert.ok(rendered.html.includes('cid:logo'));
+  assert.ok(!rendered.html.includes('['));
 });
 
-test('buildEmail renders the final notice template, using the due date (not issue date) for [DATA]', () => {
+test('buildEmail renders the final notice template (text + html), using the due date (not issue date) for [DATA]', () => {
   const rendered = buildEmail('final', {
     invoiceNumber: 'FV/3/2026', grossAmount: 750.25, issueDate: '2026-08-01', dueDate: '2026-09-09',
   });
   assert.ok(rendered.subject.includes('Ostateczne wezwanie'));
-  assert.ok(rendered.body.includes('FV/3/2026'));
-  assert.ok(rendered.body.includes('750,25'));
-  assert.ok(rendered.body.includes('09-09-2026')); // the due date
-  assert.ok(!rendered.body.includes('01-08-2026')); // NOT the issue date
-  assert.ok(!rendered.body.includes('['));
+  assert.ok(rendered.text.includes('FV/3/2026'));
+  assert.ok(rendered.text.includes('750,25'));
+  assert.ok(rendered.text.includes('09-09-2026')); // the due date
+  assert.ok(!rendered.text.includes('01-08-2026')); // NOT the issue date
+  assert.ok(!rendered.text.includes('['));
+  assert.ok(rendered.html.includes('750,25'));
+  assert.ok(rendered.html.includes('09-09-2026'));
+  assert.ok(!rendered.html.includes('01-08-2026'));
+  assert.ok(rendered.html.includes('cid:logo'));
+  assert.ok(!rendered.html.includes('['));
 });

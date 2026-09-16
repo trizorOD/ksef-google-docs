@@ -1,3 +1,5 @@
+const fs = require('fs');
+
 function parseTemplateContent(content) {
   const lines = content.replace(/\r\n/g, '\n').split('\n');
   const subjectLine = lines[0] || '';
@@ -11,18 +13,29 @@ function parseTemplateContent(content) {
 }
 
 function loadTemplate(filePath) {
-  const fs = require('fs');
   const content = fs.readFileSync(filePath, 'utf8');
   return parseTemplateContent(content);
 }
 
+// Reads a template file as-is, with no subject-line parsing — for HTML
+// email bodies, which have no separate "Subject:" line (the subject comes
+// from the matching .txt template instead).
+function loadHtmlBody(filePath) {
+  return fs.readFileSync(filePath, 'utf8');
+}
+
+function substitutePlaceholders(text, vars) {
+  return Object.keys(vars).reduce(
+    (acc, key) => acc.split(`[${key}]`).join(vars[key] ?? ''),
+    text
+  );
+}
+
 function renderTemplate(template, vars) {
-  const substitute = (text) =>
-    Object.keys(vars).reduce(
-      (acc, key) => acc.split(`[${key}]`).join(vars[key] ?? ''),
-      text
-    );
-  return { subject: substitute(template.subject), body: substitute(template.body) };
+  return {
+    subject: substitutePlaceholders(template.subject, vars),
+    body: substitutePlaceholders(template.body, vars),
+  };
 }
 
 function formatAmountPl(amount) {
@@ -65,6 +78,8 @@ function addDaysISO(isoDate, days) {
 module.exports = {
   parseTemplateContent,
   loadTemplate,
+  loadHtmlBody,
+  substitutePlaceholders,
   renderTemplate,
   formatAmountPl,
   formatDatePl,

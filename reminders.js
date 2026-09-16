@@ -1,11 +1,20 @@
 const path = require('path');
 const {
-  loadTemplate, renderTemplate, formatAmountPl, formatDatePl, parseDatePl, addDaysISO, warsawTodayISO,
+  loadTemplate, loadHtmlBody, renderTemplate, substitutePlaceholders,
+  formatAmountPl, formatDatePl, parseDatePl, addDaysISO, warsawTodayISO,
 } = require('./template_utils');
 
 const REMINDER_TEMPLATE_PATH = path.join(__dirname, 'templates', 'reminder.txt');
 const OVERDUE_TEMPLATE_PATH = path.join(__dirname, 'templates', 'overdue.txt');
 const FINAL_NOTICE_TEMPLATE_PATH = path.join(__dirname, 'templates', 'final_notice.txt');
+
+const REMINDER_HTML_PATH = path.join(__dirname, 'templates', 'reminder.html');
+const OVERDUE_HTML_PATH = path.join(__dirname, 'templates', 'overdue.html');
+const FINAL_NOTICE_HTML_PATH = path.join(__dirname, 'templates', 'final_notice.html');
+
+// Inline-attached (cid:logo) in the HTML body's signature, linking to the
+// company site.
+const LOGO_PATH = path.join(__dirname, 'templates', 'assets', 'logo.png');
 
 // Days after the due date before the first final notice, and the repeat
 // interval for it thereafter while the invoice remains unpaid.
@@ -67,18 +76,30 @@ const TEMPLATE_PATHS = {
   final: FINAL_NOTICE_TEMPLATE_PATH,
 };
 
+const HTML_TEMPLATE_PATHS = {
+  reminder: REMINDER_HTML_PATH,
+  overdue: OVERDUE_HTML_PATH,
+  final: FINAL_NOTICE_HTML_PATH,
+};
+
+// Returns { subject, text, html } — subject/text come from the .txt
+// template (also the plain-text fallback part of the email), html from the
+// matching .html template. Both get the same placeholder substitution.
 function buildEmail(action, row) {
   const template = loadTemplate(TEMPLATE_PATHS[action]);
+  const htmlBody = loadHtmlBody(HTML_TEMPLATE_PATHS[action]);
   const vars = {
     NUMER: row.invoiceNumber,
     KWOTA: formatAmountPl(row.grossAmount),
-    // final_notice.txt's [DATA] reads "termin płatności upłynął [DATA]" —
-    // there it means the due date, not the issue date like the other two
+    // final_notice's [DATA] reads "termin płatności upłynął [DATA]" — there
+    // it means the due date, not the issue date like the other two
     // templates.
     DATA: formatDatePl(action === 'final' ? row.dueDate : row.issueDate),
     'TERMIN PŁATNOŚCI': formatDatePl(row.dueDate),
   };
-  return renderTemplate(template, vars);
+  const { subject, body: text } = renderTemplate(template, vars);
+  const html = substitutePlaceholders(htmlBody, vars);
+  return { subject, text, html };
 }
 
 const nodemailer = require('nodemailer');
@@ -159,11 +180,11 @@ async function runReminders(auth, options = {}) {
 
     const rendered = buildEmail(action, row);
 
-    let attachments = [];
+    const attachments = [{ filename: 'logo.png', path: LOGO_PATH, cid: 'logo' }];
     if (row.ksefNumber) {
       try {
         const pdfBuffer = await downloadAttachment(auth, `${row.ksefNumber}.pdf`);
-        attachments = [{ filename: safeAttachmentName(row.invoiceNumber), content: pdfBuffer }];
+        attachments.push({ filename: safeAttachmentName(row.invoiceNumber), content: pdfBuffer });
       } catch (err) {
         log(`WARNING: could not attach PDF for ${row.invoiceNumber}, sending without it: ${err.message}`);
       }
@@ -176,7 +197,8 @@ async function runReminders(auth, options = {}) {
         from: config.smtp.from,
         to: email,
         subject: rendered.subject,
-        text: rendered.body,
+        text: rendered.text,
+        html: rendered.html,
         attachments,
       });
     } catch (err) {

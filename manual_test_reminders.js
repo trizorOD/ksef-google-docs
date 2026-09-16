@@ -8,8 +8,11 @@
 // Usage:
 //   node manual_test_reminders.js your@email.com
 //
-// Sends two test emails to the given address: one "reminder" (due
-// tomorrow) and one "overdue" (due date in the past).
+// Sends three test emails to the given address: one "reminder" (due
+// tomorrow), one "overdue" (due date yesterday), and one "final notice"
+// (due date well in the past). No PDF attachment (no real KSeF number to
+// look up in Drive) — the inline logo is still attached, so this is enough
+// to eyeball the HTML rendering.
 
 const { runReminders } = require('./reminders');
 const { warsawTodayISO, addDaysISO } = require('./template_utils');
@@ -23,18 +26,21 @@ if (!targetEmail) {
 const today = warsawTodayISO();
 const tomorrow = addDaysISO(today, 1);
 const yesterday = addDaysISO(today, -1);
+const wellPastDue = addDaysISO(today, -10);
 
 const fakeRows = [
   {
-    rowNumber: -1, // never used for real — markReminderSent below is a no-op mock
+    rowNumber: -1, // never used for real — the mocks below just log
     invoiceNumber: 'TEST-REMINDER-001',
     buyerName: 'Manual Test Buyer',
     issueDate: today,
     dueDate: tomorrow,
     grossAmount: 123.45,
-    status: '',
+    status: 'не оплачено',
+    ksefNumber: '',
     reminderSent: '',
     overdueSent: '',
+    finalNoticeSent: '',
   },
   {
     rowNumber: -2,
@@ -43,9 +49,24 @@ const fakeRows = [
     issueDate: '2026-08-01',
     dueDate: yesterday,
     grossAmount: 500,
-    status: '',
+    status: 'не оплачено',
+    ksefNumber: '',
     reminderSent: '',
     overdueSent: '',
+    finalNoticeSent: '',
+  },
+  {
+    rowNumber: -3,
+    invoiceNumber: 'TEST-FINAL-001',
+    buyerName: 'Manual Test Buyer',
+    issueDate: '2026-08-01',
+    dueDate: wellPastDue,
+    grossAmount: 999.99,
+    status: 'не оплачено',
+    ksefNumber: '',
+    reminderSent: '',
+    overdueSent: '',
+    finalNoticeSent: '',
   },
 ];
 
@@ -63,10 +84,13 @@ const fakeSheets = {
   markOverdueSent: async (_auth, rowNumber, date) => {
     console.log(`[mock] would mark row ${rowNumber} Overdue email sent = ${date}`);
   },
+  markFinalNoticeSent: async (_auth, rowNumber, date) => {
+    console.log(`[mock] would mark row ${rowNumber} Final notice sent = ${date}`);
+  },
 };
 
 (async () => {
-  console.log(`Sending test reminder + overdue emails to ${targetEmail} (today=${today})...\n`);
+  console.log(`Sending test reminder + overdue + final notice emails to ${targetEmail} (today=${today})...\n`);
   const summary = await runReminders(null, {
     todayISO: today,
     log: (msg) => console.log(msg),
