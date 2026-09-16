@@ -277,7 +277,10 @@ function colValue(col, inv) {
     case 'isCorrectiveInvoice':       return inv.invoiceType?.toUpperCase() === 'KOR' ? 'TAK' : '';
     case 'driveLink':                 return inv._driveLink || '';
     case 'correctiveDriveLink':       return inv._correctiveDriveLink || '';
-    case 'overdueDaysPlaceholder':    return ''; // never write here — user-maintained column
+    // null (not '') — an empty string is still a written value and blocks
+    // the user's ARRAYFORMULA in P2 from spilling into new rows. null
+    // leaves the cell genuinely untouched so the formula auto-extends.
+    case 'overdueDaysPlaceholder':    return null;
     case 'reminderSentPlaceholder':   return '';
     case 'overdueSentPlaceholder':    return '';
     case 'finalNoticeSentPlaceholder': return '';
